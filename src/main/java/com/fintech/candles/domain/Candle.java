@@ -57,9 +57,6 @@ import java.io.Serializable;
  * @param volume Number of BidAskEvents processed in this window. Indicates liquidity/activity.
  * 
  * @throws IllegalArgumentException if OHLC invariants are violated
- * 
- * @author Senior Java/Web3 Developer
- * @since 1.0.0
  */
 public record Candle(
     long time,

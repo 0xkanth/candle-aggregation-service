@@ -93,8 +93,6 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li>{@code candle.aggregator.event.processing.time} - Processing latency histogram</li>
  * </ul>
  * 
- * @author Senior Java/Web3 Developer
- * @since 1.0.0
  * @see MutableCandle
  * @see TimeWindowManager
  * @see CandleRepository

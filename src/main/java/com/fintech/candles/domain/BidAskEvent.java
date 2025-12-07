@@ -34,8 +34,6 @@ import java.io.Serializable;
  * @param timestamp Unix epoch milliseconds when the quote was generated (NOT when received).
  *                  Used for time window alignment and late event detection.
  * 
- * @author Senior Java/Web3 Developer
- * @since 1.0.0
  */
 public record BidAskEvent(
     String symbol,

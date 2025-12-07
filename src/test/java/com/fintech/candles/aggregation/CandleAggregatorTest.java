@@ -49,7 +49,6 @@ import static org.mockito.Mockito.*;
  *   <li>TimeWindowManager: Real instance (pure logic, no I/O)</li>
  * </ul>
  * 
- * @author Senior Java/Web3 Developer
  * @see CandleAggregator
  */
 @DisplayName("CandleAggregator Tests")

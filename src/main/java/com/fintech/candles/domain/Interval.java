@@ -30,9 +30,6 @@ package com.fintech.candles.domain;
  * </pre>
  * 
  * <p><b>Thread Safety:</b> Enums are inherently thread-safe (singleton per constant).
- * 
- * @author Senior Java/Web3 Developer
- * @since 1.0.0
  */
 public enum Interval {
     

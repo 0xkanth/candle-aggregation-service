@@ -317,7 +317,8 @@ curl http://localhost:8080/actuator/prometheus
 
 ## Architecture
 
-> **📖 For in-depth technical explanations with visual examples, see [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)**
+> **📖 For in-depth technical explanations with visual examples, see [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)**  
+> **📊 For market data generator comparison and configuration, see [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)**
 
 ### System Design
 
@@ -613,6 +614,8 @@ watch -n 1 'curl -s http://localhost:8080/actuator/metrics/candle.aggregator.eve
 
 ## Configuration
 
+> **⚙️ For detailed data generator configuration options, see [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md#switching-between-generators)**
+
 ```properties
 # Chronicle Map
 candle.storage.path=./data/candles.dat
@@ -624,9 +627,11 @@ disruptor.buffer.size=1024
 # Late events
 candle.late.event.tolerance.seconds=5
 
-# Market simulator (for demo)
-simulator.enabled=true
-candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD
+# Market data generators
+candle.simulation.simple-mode=false           # MarketDataSimulator (disabled)
+candle.simulation.production-scale=true       # ProductionScaleDataGenerator (enabled)
+candle.simulation.events-per-second=100000    # Target throughput
+candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,XAUUSD
 ```
 
 ## Performance
@@ -702,6 +707,8 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Automated setup, environment configuration, troubleshooting
 - **[CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)** - Visual examples, algorithm walkthrough, real-world scenarios
+- **[DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)** - Market data generators explained, configuration guide
+- **[PERFORMANCE_BENCHMARKING.md](./PERFORMANCE_BENCHMARKING.md)** - Benchmarking instructions and metrics
 
 ---
 

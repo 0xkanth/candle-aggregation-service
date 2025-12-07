@@ -511,6 +511,328 @@ classDiagram
     MutableCandle --> Candle: converts to
 ```
 
+### Candle Class Architecture
+
+The system uses **two distinct candle representations** optimized for different purposes:
+
+#### 1. **Candle** (Immutable Record)
+- **Location:** `src/main/java/com/fintech/candles/domain/Candle.java`
+- **Type:** Java record (immutable by design)
+- **Purpose:** Final representation for persistence and API responses
+- **Key Features:**
+  - Thread-safe (all fields final)
+  - Serializable (required by Chronicle Map)
+  - OHLC validation in compact constructor
+  - Factory method: `Candle.of(time, price)`
+  - Helper methods: `isValid()`, `containsTime()`
+
+#### 2. **MutableCandle** (Private Inner Class)
+- **Location:** `src/main/java/com/fintech/candles/aggregation/CandleAggregator.java` (line 558)
+- **Type:** Private static inner class
+- **Purpose:** Working copy during active aggregation (performance optimization)
+- **Key Features:**
+  - Mutable fields (`high`, `low`, `close`, `volume`) for in-place updates
+  - `update(double price)` method (line 621) - zero-allocation mutations
+  - `toImmutableCandle()` method (line 642) - conversion to `Candle` record
+  - Never exposed outside `CandleAggregator`
+
+**Note:** There is no separate "ImmutableCandle" class - the `Candle` record serves as the immutable representation.
+
+#### Why Two Classes?
+
+**Performance:** Avoid object allocation on the hot path
+```java
+// ❌ BAD: Creates new object for every price update
+candle = new Candle(time, candle.open, newHigh, newLow, newClose, newVolume);
+
+// ✅ GOOD: Mutates existing object in-place
+mutableCandle.update(price);  // Zero allocation
+```
+
+**Memory Safety:** Mutability confined to aggregator
+- `MutableCandle` exists only within `activeCandles` map
+- Wrapped in `AtomicReference` for thread-safe updates
+- Converted to immutable `Candle` before storage/API responses
+
+#### Transformation Flow
+
+```mermaid
+graph LR
+    A[BidAskEvent] -->|price| B[MutableCandle]
+    B -->|update price| B
+    B -->|window closes| C[toImmutableCandle]
+    C --> D[Candle record]
+    D --> E[Chronicle Map]
+    D --> F[API Response]
+    
+    style B fill:#ff6b6b,color:#fff
+    style D fill:#4ecdc4,color:#fff
+```
+
+**Lifecycle:**
+1. **Creation:** `MutableCandle` created on first event in window
+2. **Aggregation:** `update(price)` called for each event (mutates in-place)
+3. **Conversion:** Window closes → `toImmutableCandle()` creates `Candle` record
+4. **Persistence:** Immutable `Candle` stored in Chronicle Map
+5. **API:** Immutable `Candle` returned in query results
+
+**Thread Safety:**
+- `MutableCandle` wrapped in `AtomicReference<MutableCandle>`
+- `updateAndGet()` uses CAS (compare-and-swap) internally
+- However, updates happen inside `ConcurrentHashMap.compute()` lock (not truly lock-free)
+- Once converted to `Candle`, fully immutable = inherently thread-safe
+
+#### Stateful Fields in CandleAggregator
+
+The aggregator maintains critical state using lock-free concurrent data structures:
+
+**1. `activeCandles` - ConcurrentHashMap<String, AtomicReference<MutableCandle>>**
+- **Purpose:** In-memory cache of candles currently being built
+- **Key Format:** `"SYMBOL-INTERVAL"` (e.g., `"BTCUSD-M1"`, `"ETHUSD-S5"`)
+- **Value:** `AtomicReference<MutableCandle>` for lock-free CAS updates
+- **Size:** ~1000 entries typical (50 symbols × 5 intervals × 4 active windows)
+- **Why ConcurrentHashMap:** Thread-safe map operations (`compute()`, `putIfAbsent()`)
+- **Why AtomicReference:** Lock-free updates to candle fields (high/low/close/volume)
+- **Lifecycle:** Entries created on first event in window, removed after persistence
+
+**2. `eventsProcessed` - AtomicLong**
+- **Purpose:** Total count of market data events processed
+- **Thread Safety:** `AtomicLong.incrementAndGet()` for lock-free counter updates
+- **Metrics:** Exposed as `candle.aggregator.events.processed` Prometheus gauge
+- **Monitoring:** Track throughput (events/sec), detect data flow issues
+
+**3. `candlesCompleted` - AtomicLong**
+- **Purpose:** Total count of completed candles persisted to Chronicle Map
+- **Thread Safety:** `AtomicLong.incrementAndGet()` for lock-free counter updates
+- **Metrics:** Exposed as `candle.aggregator.candles.completed` Prometheus gauge
+- **Monitoring:** Validate aggregation pipeline health, detect storage issues
+
+**4. `lateEventsDropped` - AtomicLong**
+- **Purpose:** Count of events arriving after window tolerance expires
+- **Thread Safety:** `AtomicLong.incrementAndGet()` for lock-free counter updates
+- **Metrics:** Exposed as `candle.aggregator.late.events.dropped` Prometheus gauge
+- **Monitoring:** Alert on clock skew, network delays, or backpressure
+
+**Why Lock-Free Primitives?**
+```java
+// ❌ BAD: Synchronized counter (thread contention under high load)
+private long eventsProcessed = 0;
+public synchronized void increment() { eventsProcessed++; }
+
+// ✅ GOOD: AtomicLong (lock-free CAS, scales linearly with cores)
+private final AtomicLong eventsProcessed = new AtomicLong(0);
+eventsProcessed.incrementAndGet();  // Lock-free, ~5 CPU cycles
+```
+
+**State Visibility:**
+- All fields registered as Micrometer gauges
+- Scraped by Prometheus every 15 seconds
+- Visualized in Grafana dashboards
+- Used for alerting (e.g., `lateEventsDropped > 1000/min`)
+
+### Complete State Management Architecture
+
+The system maintains state across **two tiers** - in-memory active state and persistent storage:
+
+#### State Tier 1: In-Memory Active State (CandleAggregator)
+
+**Location:** `src/main/java/com/fintech/candles/aggregation/CandleAggregator.java`
+
+| Field | Type | Purpose | Thread Safety | Lifecycle |
+|-------|------|---------|---------------|-----------|
+| `activeCandles` | `ConcurrentHashMap<String, AtomicReference<MutableCandle>>` | Current candles being built | ConcurrentHashMap locks + CAS | Created on first event in window, removed after persistence |
+| `eventsProcessed` | `AtomicLong` | Total events processed | Lock-free CAS increment | Monotonically increasing counter |
+| `candlesCompleted` | `AtomicLong` | Total candles persisted | Lock-free CAS increment | Monotonically increasing counter |
+| `lateEventsDropped` | `AtomicLong` | Late events beyond tolerance | Lock-free CAS increment | Monotonically increasing counter |
+
+**Key Structure:** `activeCandles` map key = `"SYMBOL-INTERVAL"` (e.g., `"BTCUSD-M1"`)
+
+#### State Tier 2: Persistent Storage (Chronicle Map)
+
+**Location:** `src/main/java/com/fintech/candles/storage/ChronicleMapCandleRepository.java`
+
+| Field | Type | Purpose | Thread Safety | Persistence |
+|-------|------|---------|---------------|-------------|
+| `candleMap` | `ChronicleMap<String, Candle>` | Off-heap persistent candle storage | Thread-safe (Chronicle Map internal locks) | Memory-mapped file (`./data/candles.dat`) |
+| `writeCounter` | `AtomicLong` | Total writes to Chronicle Map | Lock-free CAS increment | In-memory only (reset on restart) |
+| `readCounter` | `AtomicLong` | Total reads from Chronicle Map | Lock-free CAS increment | In-memory only (reset on restart) |
+
+**Key Structure:** `candleMap` key = `"SYMBOL-INTERVAL-TIMESTAMP"` (e.g., `"BTCUSD-M1-1733529420000"`)
+
+#### State Flow Diagram
+
+```mermaid
+graph TB
+    subgraph "Event Processing Flow"
+        E[BidAskEvent] --> AG[CandleAggregator.processEvent]
+    end
+    
+    subgraph "In-Memory State (Tier 1)"
+        AG --> EP[eventsProcessed++]
+        AG --> AC{activeCandles.get<br/>SYMBOL-INTERVAL}
+        
+        AC -->|Not Found| CREATE[Create MutableCandle<br/>AtomicReference]
+        AC -->|Found| UPDATE[updateAndGet<br/>CAS update OHLC]
+        
+        CREATE --> WRAP[Wrap in AtomicReference]
+        WRAP --> PUT[activeCandles.put]
+        UPDATE --> CHECK{New Window?}
+    end
+    
+    subgraph "Persistence (Tier 2)"
+        CHECK -->|Yes| PERSIST[persistCandle]
+        PERSIST --> CONVERT[toImmutableCandle<br/>MutableCandle → Candle]
+        CONVERT --> SAVE[repository.save]
+        SAVE --> CM[candleMap.put<br/>Off-heap storage]
+        CM --> CC[candlesCompleted++]
+        CC --> REMOVE[activeCandles.remove<br/>Old window]
+    end
+    
+    subgraph "Late Event Handling"
+        CHECK -->|Late Event| LATE{Within<br/>Tolerance?}
+        LATE -->|No| DROP[lateEventsDropped++]
+        LATE -->|Yes| FIND[repository.findByExactTime]
+        FIND --> UPDCM[Update Candle in Chronicle Map]
+    end
+    
+    subgraph "API Query Flow"
+        API[GET /api/v1/history] --> QUERY[repository.findByRange]
+        QUERY --> SCAN[candleMap scan by prefix]
+        SCAN --> RC[readCounter++]
+        SCAN --> RESP[Return Candle list]
+    end
+    
+    style AC fill:#ff6b6b,color:#fff
+    style CM fill:#4ecdc4,color:#fff
+    style EP fill:#ffd93d
+    style CC fill:#ffd93d
+    style RC fill:#ffd93d
+```
+
+#### State Update Operations
+
+**1. Normal Event (Current Window)**
+```java
+// Step 1: Increment event counter (lock-free)
+eventsProcessed.incrementAndGet();
+
+// Step 2: Get or create active candle (ConcurrentHashMap.compute)
+String key = "BTCUSD-M1";  // Symbol + Interval
+activeCandles.compute(key, (k, atomicRef) -> {
+    if (atomicRef == null) {
+        // First event for this window
+        MutableCandle newCandle = new MutableCandle(windowStart, price, ...);
+        return new AtomicReference<>(newCandle);
+    } else {
+        // Update existing candle (CAS inside updateAndGet)
+        atomicRef.updateAndGet(candle -> {
+            candle.update(price);  // Mutate in-place
+            return candle;         // Return same reference
+        });
+        return atomicRef;
+    }
+});
+
+// Step 3: Check if window changed (time-based)
+if (newWindowDetected) {
+    persistCandle(oldMutableCandle);  // Save to Chronicle Map
+    activeCandles.remove(oldKey);      // Clean up old window
+    candlesCompleted.incrementAndGet(); // Increment counter
+}
+```
+
+**2. Late Event (Previous Window)**
+```java
+// Step 1: Check tolerance
+if (eventAge > tolerance) {
+    lateEventsDropped.incrementAndGet();
+    return;  // Drop event
+}
+
+// Step 2: Find existing candle in Chronicle Map
+repository.findByExactTime(symbol, interval, windowStart).ifPresent(existing -> {
+    // Step 3: Create updated immutable Candle
+    Candle updated = new Candle(
+        existing.time(),
+        existing.open(),
+        Math.max(existing.high(), price),
+        Math.min(existing.low(), price),
+        price,
+        existing.volume() + 1
+    );
+    
+    // Step 4: Overwrite in Chronicle Map
+    repository.save(symbol, interval, updated);
+    writeCounter.incrementAndGet();
+});
+```
+
+**3. API Query (Read Path)**
+```java
+// Step 1: Construct key prefix
+String prefix = "BTCUSD-M1-";
+
+// Step 2: Scan Chronicle Map (off-heap iteration)
+List<Candle> results = new ArrayList<>();
+for (Entry<String, Candle> entry : candleMap.entrySet()) {
+    if (entry.getKey().startsWith(prefix)) {
+        Candle candle = entry.getValue();
+        if (candle.time() >= fromTime && candle.time() <= toTime) {
+            results.add(candle);
+        }
+    }
+}
+
+// Step 3: Increment counter
+readCounter.incrementAndGet();
+
+// Step 4: Sort and return
+results.sort(Comparator.comparingLong(Candle::time));
+return results;
+```
+
+#### State Synchronization Guarantees
+
+| Operation | Synchronization Mechanism | Consistency Guarantee |
+|-----------|--------------------------|----------------------|
+| `activeCandles.compute()` | ConcurrentHashMap internal lock | Atomic per key |
+| `AtomicReference.updateAndGet()` | CAS loop | Linearizable |
+| `eventsProcessed.incrementAndGet()` | CAS (lock-free) | Eventually consistent |
+| `candleMap.put()` | Chronicle Map segment lock | Per-key atomic write |
+| `candleMap.get()` | Lock-free read (memory-mapped) | Read committed |
+
+**Critical Insight:** 
+- **activeCandles**: Hot path (100K ops/sec), lock-free reads, locked writes per key
+- **candleMap**: Cold path (candles/sec), off-heap storage, survives JVM restart
+- **Counters**: Lock-free CAS, no contention, used for metrics only
+
+#### Memory Layout
+
+```
+JVM Heap (4 GB)
+├── CandleAggregator instance (~1 KB)
+│   ├── activeCandles: ConcurrentHashMap (~100 KB)
+│   │   └── ~1000 entries × (String key + AtomicReference + MutableCandle)
+│   ├── eventsProcessed: AtomicLong (8 bytes)
+│   ├── candlesCompleted: AtomicLong (8 bytes)
+│   └── lateEventsDropped: AtomicLong (8 bytes)
+│
+├── ChronicleMapCandleRepository instance (~1 KB)
+│   ├── writeCounter: AtomicLong (8 bytes)
+│   └── readCounter: AtomicLong (8 bytes)
+
+Off-Heap Memory (2 GB)
+└── candleMap: ChronicleMap (memory-mapped file)
+    └── ./data/candles.dat (up to 10M entries × ~200 bytes)
+```
+
+**Why This Design?**
+- **Separation of Concerns:** Active (mutable, fast) vs Completed (immutable, persistent)
+- **Zero GC:** Chronicle Map off-heap = no GC pauses for historical data
+- **Fast Queries:** Memory-mapped file = OS page cache = <5μs reads
+- **Crash Recovery:** Chronicle Map auto-recovers on restart (persistent state)
+- **Bounded Memory:** Active candles limited to ~1000 (recent windows only)
+
 ### Storage Schema
 
 Chronicle Map key format:

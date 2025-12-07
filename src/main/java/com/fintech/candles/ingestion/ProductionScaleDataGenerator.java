@@ -28,9 +28,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * - Market microstructure effects (bid-ask bounce)
  * 
  * Performance: Can sustain 50K-100K events/sec on modern hardware.
+ * 
+ * This is the default production-grade data generator.
  */
 @Component
-@ConditionalOnProperty(name = "candle.simulation.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "candle.simulation.production-scale", havingValue = "true", matchIfMissing = true)
 public class ProductionScaleDataGenerator {
     
     private static final Logger log = LoggerFactory.getLogger(ProductionScaleDataGenerator.class);

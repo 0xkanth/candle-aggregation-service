@@ -54,11 +54,16 @@ candle:
       wait-strategy: YIELDING
     late-event-tolerance-ms: 5000
   simulation:
-    enabled: true
-    events-per-second: 100000  # Target 100K events/sec
-    symbols:
-      - BTC-USD
-      - ETH-USD
-      - SOL-USD
-    update-frequency-ms: 10  # 10ms = 100 updates/sec
-    events-per-tick: 334     # 3 symbols * 100 updates/sec * 334 events = ~100K events/sec
+    # Data Generator Configuration
+    # simple-mode: Uses MarketDataSimulator (3 crypto symbols, lower throughput)
+    # production-scale: Uses ProductionScaleDataGenerator (16 instruments, high throughput)
+    simple-mode: false           # Disable simple simulator
+    production-scale: true       # Enable production-scale generator (default)
+    
+    # Production-Scale Generator Settings
+    events-per-second: 100000    # Target 100K events/sec
+    symbols: BTCUSD,ETHUSD,SOLUSD,BNBUSD,ADAUSD,EURUSD,GBPUSD,USDJPY,AUDUSD,USDCHF,XAUUSD,XAGUSD,WTICRD,SPX500,NAS100,UK100
+    
+    # Legacy Simple Simulator Settings (used only when simple-mode: true)
+    update-frequency-ms: 10      # 10ms = 100 updates/sec
+    events-per-tick: 334         # 3 symbols * 100 updates/sec * 334 events = ~100K events/sec

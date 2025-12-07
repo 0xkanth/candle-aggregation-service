@@ -51,7 +51,8 @@ candle:
     
   simulation:
     enabled: true
-    symbols: BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,USDJPY
+    use-simple-simulator: false  # Use ProductionScaleDataGenerator for production
+    symbols: BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,USDJPY,BNBUSD,ADAUSD,XAUUSD,XAGUSD,WTICRD,SPX500,NAS100,UK100,AUDUSD,USDCHF
     events-per-second: 50000
     
 logging:

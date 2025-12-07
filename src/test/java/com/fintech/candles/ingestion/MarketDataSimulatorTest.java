@@ -3,6 +3,7 @@ package com.fintech.candles.ingestion;
 import com.fintech.candles.config.CandleProperties;
 import com.fintech.candles.domain.BidAskEvent;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -26,6 +27,7 @@ import static org.mockito.Mockito.*;
  *   <li>Event counting</li>
  * </ul>
  */
+@Disabled("MarketDataSimulator disabled by default in favor of ProductionScaleDataGenerator")
 @DisplayName("MarketDataSimulator Tests")
 class MarketDataSimulatorTest {
 

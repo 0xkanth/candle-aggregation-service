@@ -21,9 +21,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * - Continuous price evolution
  * 
  * Can be disabled via configuration for production use.
+ * 
+ * NOTE: This simple simulator is disabled by default. Use ProductionScaleDataGenerator for benchmarking.
  */
 @Component
-@ConditionalOnProperty(prefix = "candle.simulation", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "candle.simulation.simple-mode", havingValue = "true", matchIfMissing = false)
 public class MarketDataSimulator {
     
     private static final Logger log = LoggerFactory.getLogger(MarketDataSimulator.class);

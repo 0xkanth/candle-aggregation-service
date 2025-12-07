@@ -778,7 +778,7 @@ Build a real-time candle aggregation service that processes high-frequency marke
 ### Assignment Deliverables Checklist
 
 - [x] **Source Code:** All requirements implemented in `src/main/java`
-- [x] **Tests:** Unit tests (95% coverage) + BDD tests (Cucumber)
+- [x] **Tests:** Unit tests + BDD tests (Cucumber)
 - [x] **Documentation:** README + architecture diagrams + technical deep dive
 - [x] **Build Instructions:** Maven build + setup scripts
 - [x] **API Documentation:** REST endpoint specification + examples

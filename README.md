@@ -171,7 +171,7 @@ Event at 10:37:23.456 creates/updates candles for:
 
 ### ✅ Requirement 3: Late Event Handling
 
-> **📖 For detailed late event algorithm explanation with examples, see [CANDLE_AGGREGATION_EXPLAINED.md](docs/CANDLE_AGGREGATION_EXPLAINED.md#6-when-is-an-event-dropped)**
+> **📖 For detailed late event algorithm explanation with examples, see [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md#6-when-is-an-event-dropped)**
 
 **Specification:**
 > "Handle late-arriving events within a configurable tolerance window"
@@ -317,7 +317,7 @@ curl http://localhost:8080/actuator/prometheus
 
 ## Architecture
 
-> **📖 For in-depth technical explanations with visual examples, see [CANDLE_AGGREGATION_EXPLAINED.md](docs/CANDLE_AGGREGATION_EXPLAINED.md)**
+> **📖 For in-depth technical explanations with visual examples, see [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)**
 
 ### System Design
 
@@ -701,7 +701,7 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW
 ## 📚 Additional Documentation
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Automated setup, environment configuration, troubleshooting
-- **[CANDLE_AGGREGATION_EXPLAINED.md](docs/CANDLE_AGGREGATION_EXPLAINED.md)** - Visual examples, algorithm walkthrough, real-world scenarios
+- **[CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)** - Visual examples, algorithm walkthrough, real-world scenarios
 
 ---
 

@@ -1,0 +1,65 @@
+spring:
+  application:
+    name: candle-aggregation-service
+  
+  threads:
+    virtual:
+      enabled: true
+  
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+  compression:
+    enabled: true
+    mime-types: application/json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+
+candle:
+  intervals: S1,S5,M1,M15,H1
+  late-event-tolerance-ms: 5000
+  
+  storage:
+    chronicle-map:
+      file-path: ./data/candles.dat
+      entries: 10000000
+      average-key-size: 50
+      average-value-size: 150
+  
+  disruptor:
+    ring-buffer-size: 8192
+    wait-strategy: YieldingWaitStrategy
+    
+  simulation:
+    enabled: true
+    symbols: BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,USDJPY
+    events-per-second: 50000
+    
+logging:
+  level:
+    root: INFO
+    com.fintech.candles: DEBUG
+  file:
+    name: ./logs/application.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

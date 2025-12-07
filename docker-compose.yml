@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  candle-aggregation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: candle-aggregation-service:1.0.0
+    container_name: candle-aggregation
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist Chronicle Map data across container restarts
+      - ./data:/app/data
+      # Persist logs for debugging
+      - ./logs:/app/logs
+    environment:
+      # Override default configurations if needed
+      - SPRING_PROFILES_ACTIVE=docker
+      - CANDLE_STORAGE_PATH=/app/data/candles.dat
+      - CANDLE_LATE_EVENT_TOLERANCE_SECONDS=5
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 6G
+        reservations:
+          cpus: '1'
+          memory: 4G
+
+  # Optional: Prometheus for metrics collection
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #   depends_on:
+  #     - candle-aggregation
+
+  # Optional: Grafana for visualization
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: grafana
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #   depends_on:
+  #     - prometheus

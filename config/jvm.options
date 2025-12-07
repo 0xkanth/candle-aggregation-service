@@ -1,0 +1,49 @@
+# Heap Settings
+-Xms4g
+-Xmx4g
+
+# GC Configuration - ZGC (Java 21)
+-XX:+UseZGC
+-XX:MaxGCPauseMillis=10
+-XX:ZCollectionInterval=120
+
+# Direct Memory for Chronicle Map
+-XX:MaxDirectMemorySize=2g
+
+# Chronicle Map Required Flags (Java 9+)
+--add-opens=java.base/java.lang=ALL-UNNAMED
+--add-opens=java.base/java.io=ALL-UNNAMED
+--add-opens=java.base/java.nio=ALL-UNNAMED
+--add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens=java.base/java.util=ALL-UNNAMED
+--add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED
+--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED
+--add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+
+# Performance Optimizations
+-XX:+AlwaysPreTouch
+-XX:+UseNUMA
+-XX:+DisableExplicitGC
+-XX:+ParallelRefProcEnabled
+-XX:+UseStringDeduplication
+
+# JIT Compiler
+-XX:+UseCompressedOops
+-XX:+UseCompressedClassPointers
+-XX:ReservedCodeCacheSize=512m
+
+# Virtual Threads (Project Loom)
+-Djdk.virtualThreadScheduler.parallelism=16
+-Djdk.virtualThreadScheduler.maxPoolSize=256
+
+# Network
+-Djava.net.preferIPv4Stack=true
+
+# Encoding
+-Dfile.encoding=UTF-8
+
+# Monitoring (optional - for profiling)
+# -XX:+FlightRecorder
+# -XX:StartFlightRecording=duration=60s,filename=recording.jfr
+

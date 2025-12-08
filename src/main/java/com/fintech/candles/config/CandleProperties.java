@@ -40,6 +40,7 @@ public class CandleProperties {
         public static class DisruptorConfig {
             private int bufferSize = 8192;
             private String waitStrategy = "YIELDING";
+            private int numConsumers = 1;  // Number of parallel consumer threads
         }
     }
     

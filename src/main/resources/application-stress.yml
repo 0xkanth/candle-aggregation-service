@@ -1,0 +1,10 @@
+candle:
+  aggregation:
+    disruptor:
+      buffer-size: 256          # Very small buffer to trigger drops
+      wait-strategy: YIELDING
+    late-event-tolerance-ms: 100  # Very short tolerance to trigger late drops
+  simulation:
+    simple-mode: false
+    production-scale: true
+    events-per-second: 200000   # 200K events/sec to overwhelm the system

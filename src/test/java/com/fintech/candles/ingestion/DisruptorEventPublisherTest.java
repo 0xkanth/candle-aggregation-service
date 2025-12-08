@@ -3,6 +3,7 @@ package com.fintech.candles.ingestion;
 import com.fintech.candles.aggregation.CandleAggregator;
 import com.fintech.candles.config.CandleProperties;
 import com.fintech.candles.domain.BidAskEvent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,7 +47,7 @@ class DisruptorEventPublisherTest {
     void setUp() {
         mockAggregator = mock(CandleAggregator.class);
         properties = createDefaultProperties();
-        publisher = new DisruptorEventPublisher(mockAggregator, properties);
+        publisher = new DisruptorEventPublisher(mockAggregator, properties, new SimpleMeterRegistry());
         publisher.start();
     }
 
@@ -317,7 +318,7 @@ class DisruptorEventPublisherTest {
         CandleProperties.Aggregation.DisruptorConfig disruptor = properties.getAggregation().getDisruptor();
         disruptor.setWaitStrategy(waitStrategy);
         
-        publisher = new DisruptorEventPublisher(mockAggregator, properties);
+        publisher = new DisruptorEventPublisher(mockAggregator, properties, new SimpleMeterRegistry());
         publisher.start();
         
         // When
@@ -340,7 +341,7 @@ class DisruptorEventPublisherTest {
         CandleProperties.Aggregation.DisruptorConfig disruptor = properties.getAggregation().getDisruptor();
         disruptor.setWaitStrategy("UNKNOWN_STRATEGY");
         
-        publisher = new DisruptorEventPublisher(mockAggregator, properties);
+        publisher = new DisruptorEventPublisher(mockAggregator, properties, new SimpleMeterRegistry());
         publisher.start();
         
         // When
@@ -381,7 +382,7 @@ class DisruptorEventPublisherTest {
         CandleProperties.Aggregation.DisruptorConfig disruptor = properties.getAggregation().getDisruptor();
         disruptor.setBufferSize(512); // Smaller buffer
         
-        publisher = new DisruptorEventPublisher(mockAggregator, properties);
+        publisher = new DisruptorEventPublisher(mockAggregator, properties, new SimpleMeterRegistry());
         publisher.start();
         
         // When

@@ -52,6 +52,7 @@ candle:
     disruptor:
       buffer-size: 8192
       wait-strategy: YIELDING
+      num-consumers: 4  # Parallel consumer threads (increased from 2)
     late-event-tolerance-ms: 5000
   simulation:
     # Data Generator Configuration

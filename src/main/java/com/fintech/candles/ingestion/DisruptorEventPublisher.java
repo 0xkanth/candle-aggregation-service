@@ -14,6 +14,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * High-performance event publisher using LMAX Disruptor.
@@ -33,13 +35,21 @@ public class DisruptorEventPublisher {
     
     private final CandleAggregator aggregator;
     private final CandleProperties properties;
+    private final MeterRegistry meterRegistry;
+    
+    // Prometheus metrics
+    private final AtomicLong ringBufferEventsDropped = new AtomicLong(0);
     
     private Disruptor<BidAskEventWrapper> disruptor;
     private RingBuffer<BidAskEventWrapper> ringBuffer;
     
-    public DisruptorEventPublisher(CandleAggregator aggregator, CandleProperties properties) {
+    public DisruptorEventPublisher(CandleAggregator aggregator, CandleProperties properties, MeterRegistry meterRegistry) {
         this.aggregator = aggregator;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
+        
+        // Register Prometheus gauge for ring buffer drops
+        meterRegistry.gauge("disruptor.ringbuffer.events.dropped", ringBufferEventsDropped);
     }
     
     @PostConstruct
@@ -73,8 +83,31 @@ public class DisruptorEventPublisher {
             waitStrategy
         );
         
-        // Connect event handler
-        disruptor.handleEventsWith(this::handleEvent);
+        // Connect event handler(s) - can be multiple for parallel processing
+        int numConsumers = properties.getAggregation().getDisruptor().getNumConsumers();
+        if (numConsumers <= 1) {
+            // Single consumer (original behavior)
+            disruptor.handleEventsWith(this::handleEvent);
+            log.info("Disruptor configured with single consumer thread");
+        } else {
+            // Multiple parallel consumers - create separate EventHandler instances
+            // Each runs on its own thread and processes events in parallel
+            @SuppressWarnings("unchecked")
+            EventHandler<BidAskEventWrapper>[] handlers = new EventHandler[numConsumers];
+            for (int i = 0; i < numConsumers; i++) {
+                final int workerId = i;
+                handlers[i] = (event, sequence, endOfBatch) -> {
+                    if (event.event != null) {
+                        aggregator.processEvent(event.event);
+                        if (log.isTraceEnabled()) {
+                            log.trace("Worker {} processed event at sequence {}", workerId, sequence);
+                        }
+                    }
+                };
+            }
+            disruptor.handleEventsWith(handlers);
+            log.info("Disruptor configured with {} parallel consumer threads", numConsumers);
+        }
         
         // Exception handler for production resilience
         disruptor.setDefaultExceptionHandler(new ExceptionHandler<BidAskEventWrapper>() {
@@ -135,6 +168,8 @@ public class DisruptorEventPublisher {
                 ringBuffer.publish(sequence);
             }
         } catch (InsufficientCapacityException e) {
+            // Track dropped events due to ring buffer full
+            ringBufferEventsDropped.incrementAndGet();
             return false;  // Buffer full
         }
     }
@@ -196,5 +231,10 @@ public class DisruptorEventPublisher {
     
     public long getBufferSize() {
         return ringBuffer.getBufferSize();
+    }
+    
+    /** Returns total events dropped due to ring buffer full. */
+    public long getRingBufferEventsDropped() {
+        return ringBufferEventsDropped.get();
     }
 }

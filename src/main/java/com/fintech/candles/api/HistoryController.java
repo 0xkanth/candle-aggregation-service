@@ -3,6 +3,8 @@ package com.fintech.candles.api;
 import com.fintech.candles.domain.Candle;
 import com.fintech.candles.domain.Interval;
 import com.fintech.candles.storage.CandleRepository;
+import com.fintech.candles.aggregation.CandleAggregator;
+import com.fintech.candles.ingestion.DisruptorEventPublisher;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.validation.constraints.NotBlank;
@@ -28,10 +30,18 @@ public class HistoryController {
     
     private final CandleRepository repository;
     private final MeterRegistry meterRegistry;
+    private final CandleAggregator candleAggregator;
+    private final DisruptorEventPublisher disruptorEventPublisher;
     
-    public HistoryController(CandleRepository repository, MeterRegistry meterRegistry) {
+    public HistoryController(
+            CandleRepository repository,
+            MeterRegistry meterRegistry,
+            CandleAggregator candleAggregator,
+            DisruptorEventPublisher disruptorEventPublisher) {
         this.repository = repository;
         this.meterRegistry = meterRegistry;
+        this.candleAggregator = candleAggregator;
+        this.disruptorEventPublisher = disruptorEventPublisher;
     }
     
     /**
@@ -97,6 +107,29 @@ public class HistoryController {
         List<String> symbols = List.of("BTC-USD", "ETH-USD", "SOL-USD");
         return ResponseEntity.ok(symbols);
     }
+    
+    /**
+     * GET /api/v1/metrics/dropped-events
+     * 
+     * Returns dropped event metrics for monitoring.
+     * Exposes both late events (outside tolerance window) and ring buffer drops (back-pressure).
+     */
+    @GetMapping("/metrics/dropped-events")
+    public ResponseEntity<DroppedEventsMetrics> getDroppedEventsMetrics() {
+        DroppedEventsMetrics metrics = new DroppedEventsMetrics(
+            candleAggregator.getLateEventsDropped(),
+            disruptorEventPublisher.getRingBufferEventsDropped()
+        );
+        return ResponseEntity.ok(metrics);
+    }
+    
+    /**
+     * DTO for dropped events metrics response.
+     */
+    public record DroppedEventsMetrics(
+        long lateEventsDropped,
+        long ringBufferEventsDropped
+    ) {}
     
     /**
      * Parses interval string to Interval enum.

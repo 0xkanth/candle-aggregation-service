@@ -88,6 +88,3 @@ sequenceDiagram
 - Real-time candle aggregation from multiple exchanges.
 - High-frequency trading analytics.
 - Historical data queries and reporting.
-
----
-For integration details, see the README or contact the maintainers.

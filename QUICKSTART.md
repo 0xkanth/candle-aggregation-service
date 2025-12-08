@@ -49,14 +49,23 @@ Then restart the service.
 
 ## API Endpoints
 
-- Health: `http://localhost:8080/actuator/health`
-- Metrics: `http://localhost:8080/actuator/metrics`
-- Current candles: `http://localhost:8080/api/v1/candles?symbol=BTC-USD&interval=S1`
-- Historical data: `http://localhost:8080/api/v1/history?symbol=BTC-USD&interval=S1&startTime=<timestamp>&endTime=<timestamp>`
+- Health: `GET /actuator/health`
+- Metrics: `GET /actuator/metrics`
+- Prometheus: `GET /actuator/prometheus`
+- All symbols: `GET /api/v1/symbols`
+- Historical candles: `GET /api/v1/history?symbol=BTCUSD&interval=1s&from=<unix_sec>&to=<unix_sec>`
 
-## Performance Scripts
+Example:
+```bash
+NOW=$(date +%s)
+curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW-30))&to=$NOW" | jq
+```
 
-- `./measure-latency.sh` - Measure processing latency
-- `./measure-chronicle-map.sh` - Measure storage performance
-- `./monitor-throughput.sh` - Real-time throughput monitoring
-- `./performance-report.sh` - Comprehensive performance report
+## Scripts
+
+- `./run-all-tests.sh` — Run all tests, generate HTML report
+- `./test-service.sh` — Smoke test API, metrics, and data
+- `./performance-report.sh` — Full performance summary
+- `./monitor-throughput.sh` — Real-time throughput
+- `./measure-latency.sh` — Latency metrics
+- `./measure-chronicle-map.sh` — Storage performance

@@ -146,7 +146,7 @@ Measure storage layer (write rate, read latency, file size):
 
 ## Verify Performance Claims
 
-### Claim 1: Throughput > 100K events/sec ✅
+### Claim 1: Throughput > 100K events/sec
 
 ```bash
 # Sample throughput 6 times over 30 seconds
@@ -159,14 +159,14 @@ for i in {1..6}; do
 done
 ```
 
-### Claim 2: Average latency < 2μs ✅
+### Claim 2: Average latency < 2μs
 
 ```bash
 # Calculate average latency
 ./measure-latency.sh | grep "Average:"
 ```
 
-### Claim 3: Chronicle Map reads < 5μs ✅
+### Claim 3: Chronicle Map reads < 5μs
 
 Chronicle Map reads are measured indirectly via API queries in `./measure-chronicle-map.sh`. Pure off-heap reads are ~5μs, while end-to-end API reads (including serialization) are ~20-30μs.
 

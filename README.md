@@ -1,11 +1,6 @@
 # Candle Aggregation Service
 
-> Real-time OHLCV candle aggregation service processing 100K+ events/sec with sub-millisecond latency.
-
-[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![LMAX Disruptor](https://img.shields.io/badge/LMAX%20Disruptor-4.0-red.svg)](https://lmax-exchange.github.io/disruptor/)
-[![Chronicle Map](https://img.shields.io/badge/Chronicle%20Map-3.25-blue.svg)](https://github.com/OpenHFT/Chronicle-Map)
+Real-time OHLCV candle aggregation service processing 100K+ events/sec with sub-millisecond latency.
 
 ## Overview
 
@@ -17,15 +12,15 @@ High-performance candle aggregation service processing 100K+ events/sec with <50
 - Chronicle Map 3.25 (off-heap storage)
 
 **Key Features:**
-- ✅ Multi-interval aggregation (1s, 5s, 1m, 15m, 1h)
-- ✅ Late event handling (configurable tolerance)
-- ✅ Sub-microsecond persistence (Chronicle Map)
-- ✅ TradingView-compatible REST API
-- ✅ Production metrics (Prometheus)
+- Multi-interval aggregation (1s, 5s, 1m, 15m, 1h)
+- Late event handling (configurable tolerance)
+- Sub-microsecond persistence (Chronicle Map)
+- TradingView-compatible REST API
+- Production metrics (Prometheus)
 
 ## Quick Start
 
-> **📖 For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)**
+> For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)
 
 ### Option 1: Docker (Recommended for Production & Reviewers)
 
@@ -82,10 +77,7 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW
 
 **Design Philosophy:** Lock-free concurrency, zero-GC persistence, mechanical sympathy.
 
-> **📖 Deep dive:** [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md) | [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)
-
-> **📖 For in-depth technical explanations with visual examples, see [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)**  
-> **📊 For market data generator comparison and configuration, see [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)**
+> **Deep dive:** [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md) | [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)
 
 ### System Design
 
@@ -652,7 +644,7 @@ watch -n 1 'curl -s http://localhost:8080/actuator/metrics/candle.aggregator.eve
 
 ## Configuration
 
-> **⚙️ Generator options:** [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md#switching-between-generators)
+> **Generator options:** [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md#switching-between-generators)
 
 ```properties
 # Chronicle Map
@@ -674,7 +666,7 @@ candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,XAUUSD
 
 ## Performance
 
-> **📊 Benchmarking guide:** [PERFORMANCE_BENCHMARKING.md](./PERFORMANCE_BENCHMARKING.md)
+> **Benchmarking guide:** [PERFORMANCE_BENCHMARKING.md](./PERFORMANCE_BENCHMARKING.md)
 
 | Metric | Value |
 |--------|-------|
@@ -686,19 +678,39 @@ candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,XAUUSD
 
 ## Testing
 
-```bash
-# All tests
-mvn test
+### Run All Tests with Coverage Report
 
-# BDD only
-mvn test -Dtest=CucumberTestRunner
+```bash
+./run-all-tests.sh
 ```
 
-**Coverage:** Late events, persistence, window alignment, multi-interval
+Generates professional HTML report with:
+- Test results (327 tests: unit + integration)
+- Code coverage (line + branch)
+- Execution time
+- Visual dashboard
+
+**Report locations:**
+- Summary: `target/test-reports/test-summary.html` (auto-opens)
+- Coverage: `target/site/jacoco/index.html`
+
+### Manual Testing
+
+```bash
+# Unit + integration tests
+mvn test
+
+# Specific test suite
+mvn test -Dtest=CandleAggregatorTest
+
+# With coverage
+mvn test jacoco:report
+open target/site/jacoco/index.html
+```
 
 ## Assignment Requirements → Implementation
 
-### ✅ 1. Event Ingestion & Processing
+### 1. Event Ingestion & Processing
 
 **Implementation:**
 - `BidAskEvent` record: `src/main/java/com/fintech/candles/domain/BidAskEvent.java`
@@ -709,7 +721,7 @@ mvn test -Dtest=CucumberTestRunner
 
 ---
 
-### ✅ 2. Multi-Interval Candles
+### 2. Multi-Interval Candles
 
 **Implementation:**
 - Interval enum: `src/main/java/com/fintech/candles/domain/Interval.java`
@@ -720,7 +732,7 @@ mvn test -Dtest=CucumberTestRunner
 
 ---
 
-### ✅ 3. Late Event Handling
+### 3. Late Event Handling
 
 **Implementation:**
 - Detection: `src/main/java/com/fintech/candles/util/TimeWindowManager.java`
@@ -735,7 +747,7 @@ mvn test -Dtest=CucumberTestRunner -Dcucumber.filter.tags="@late-events"
 
 ---
 
-### ✅ 4. Persistent Storage
+### 4. Persistent Storage
 
 **Implementation:**
 - Chronicle Map: `src/main/java/com/fintech/candles/storage/ChronicleMapCandleRepository.java`
@@ -746,7 +758,7 @@ mvn test -Dtest=CucumberTestRunner -Dcucumber.filter.tags="@late-events"
 
 ---
 
-### ✅ 5. REST Query API
+### 5. REST Query API
 
 **Implementation:**
 - Endpoint: `GET /api/v1/history` in `src/main/java/com/fintech/candles/api/HistoryController.java`
@@ -757,7 +769,7 @@ mvn test -Dtest=CucumberTestRunner -Dcucumber.filter.tags="@late-events"
 
 ---
 
-### ✅ 6. Monitoring & Metrics
+### 6. Monitoring & Metrics
 
 **Implementation:**
 - Micrometer + Prometheus: `/actuator/metrics`, `/actuator/health`

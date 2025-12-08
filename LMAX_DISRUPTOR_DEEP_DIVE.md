@@ -1243,7 +1243,7 @@ class MutableEvent { public String symbol; }
 record BidAskEvent(String symbol, double bid, double ask) {}
 ```
 
-### ✅ Best Practice: Monitor Buffer Utilization
+### Best Practice: Monitor Buffer Utilization
 ```java
 double utilization = (1.0 - remaining / total) * 100;
 if (utilization > 80) {
@@ -1251,7 +1251,7 @@ if (utilization > 80) {
 }
 ```
 
-### ✅ Best Practice: Exception Handling
+### Best Practice: Exception Handling
 ```java
 disruptor.setDefaultExceptionHandler(new ExceptionHandler<>() {
     public void handleEventException(Throwable ex, long seq, Event e) {

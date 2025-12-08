@@ -50,7 +50,7 @@ Two market data generators for different use cases:
 
 ## Current Configuration
 
-✅ **ProductionScaleDataGenerator** - ENABLED (default)
+**ProductionScaleDataGenerator** - ENABLED (default)
 - 16 instruments with real-time prices (Dec 7, 2025)
 - 100K events/sec target
 - Realistic GBM price evolution

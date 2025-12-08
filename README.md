@@ -25,19 +25,19 @@ High-performance candle aggregation service processing 100K+ events/sec with <50
 ### Option 1: Docker (Recommended for Production & Reviewers)
 
 ```bash
-# Build and run with Docker Compose
-docker-compose up --build
+# Build and start containers (detached)
+docker-compose up -d --build
 
-# Or build and run manually
-docker build -t candle-aggregation:1.0.0 .
-docker run -p 8080:8080 -v $(pwd)/data:/app/data candle-aggregation:1.0.0
+# To rebuild without cache (optional)
+docker-compose build --no-cache
 
-# Test
+# To stop containers
+docker-compose down
+
+# Test API
 NOW=$(date +%s)
 curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW-30))&to=$NOW" | jq
 ```
-
-**Why Docker?** Handles JAR extraction at build-time, production-ready deployment pattern, easy for reviewers to test.
 
 ### Option 2: Local Development
 
@@ -56,14 +56,18 @@ mkdir extracted && cd extracted
 jar -xf ../target/candle-aggregation-service-1.0.0.jar
 
 # Run with required JVM flags
-java \
+java -Xmx4g -XX:+UseZGC -XX:MaxGCPauseMillis=10 -XX:MaxDirectMemorySize=2g \
   --add-opens java.base/java.lang=ALL-UNNAMED \
   --add-opens java.base/java.io=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
+  --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
+  --add-opens java.base/java.util=ALL-UNNAMED \
+  --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+  --add-opens jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED \
   --add-exports java.base/jdk.internal.ref=ALL-UNNAMED \
   --add-exports jdk.unsupported/sun.misc=ALL-UNNAMED \
-  -Xmx4g \
-  -cp "BOOT-INF/classes:BOOT-INF/lib/*" \
+  --add-exports java.base/sun.nio.ch=ALL-UNNAMED \
+  -cp BOOT-INF/classes:BOOT-INF/lib/* \
   com.fintech.candles.CandleAggregationApplication
 ```
 

@@ -29,138 +29,75 @@
 
 ## Introduction: Why Your BlockingQueue is Killing Performance {#introduction}
 
-You're a Java developer. You've been using `ArrayBlockingQueue` or `LinkedBlockingQueue` for inter-thread communication. It works... until it doesn't.
+Traditional queues (`ArrayBlockingQueue`, `LinkedBlockingQueue`) suffer from:
+- **Locks**: `synchronized` blocks causing contention
+- **Context switches**: Thread parking/unparking overhead
+- **GC pressure**: Continuous object allocation
+- **False sharing**: CPU cache invalidation
 
-**The Wake-Up Call:**
-```java
-// Your current code
-BlockingQueue<Event> queue = new ArrayBlockingQueue<>(1024);
-
-// Producer
-queue.put(event);  // Locks! Context switches! GC pressure!
-
-// Consumer  
-Event event = queue.take();  // More locks! More waiting!
+**Impact:**
+```
+ArrayBlockingQueue:     LMAX Disruptor:
+10K events/sec    →     100K+ events/sec (10x)
+~10ms p99         →     <50μs p99 (200x faster)
+40% CPU util      →     90% CPU util
 ```
 
-**The Problem:**
-- **Locks everywhere**: `synchronized`, `ReentrantLock`, mutex contention
-- **Context switches**: Threads sleeping, waking up, OS overhead
-- **Garbage Collection**: New objects created constantly
-- **False sharing**: CPU cache invalidation between threads
-
-**Real-world impact:**
-```
-ArrayBlockingQueue:
-  Throughput: ~10K events/sec
-  Latency: ~10ms p99
-  CPU: 40% (mostly waiting on locks)
-
-LMAX Disruptor:
-  Throughput: 100K+ events/sec  ← 10x improvement
-  Latency: <50μs p99            ← 200x improvement
-  CPU: 90% (doing actual work)
-```
-
-This guide will show you **exactly** how we achieved this, with real code from a production candle aggregation system.
+This guide shows how we achieved this using real production code.
 
 ---
 
 ## The Problem with Traditional Queues {#the-problem}
 
-### What Happens with BlockingQueue
+### Lock Contention & Context Switches
 
 ```java
-// Producer thread
-synchronized (queue) {           // ← Lock acquired
-    queue.add(event);            // ← Modify internal array
-    queue.notifyAll();           // ← Wake up waiting consumers
-}                                // ← Lock released
-
-// Consumer thread
-synchronized (queue) {           // ← Lock acquired (waits if producer has it)
-    while (queue.isEmpty()) {    
-        queue.wait();            // ← Thread sleeps, releases lock
-    }
-    return queue.remove();       // ← Modify internal array
-}                                // ← Lock released
+// BlockingQueue internals
+synchronized (queue) {           // Lock acquired
+    queue.add(event);
+    queue.notifyAll();           // Wake consumers
+}                                // Lock released
 ```
 
-### The Hidden Costs
+**Hidden costs:**
+- Lock waiting: 50-150μs per thread
+- Context switches: 1-10μs kernel overhead
+- Cold CPU cache after wake-up
 
-**1. Lock Contention**
-```
-Thread 1 (Producer): Waiting for lock... 50μs
-Thread 2 (Consumer): Waiting for lock... 50μs
-Thread 3 (Producer): Waiting for lock... 100μs
-Thread 4 (Consumer): Waiting for lock... 150μs
-```
+### Memory Allocation
 
-**2. Context Switches**
-```
-Consumer thread waits → OS puts thread to sleep → Kernel call (~1-10μs)
-Producer writes data → OS wakes consumer thread → Another kernel call
-Consumer resumes → CPU cache is cold → Cache miss penalty
-```
-
-**3. Memory Allocation**
 ```java
-queue.put(new Event(...));  // ← New object allocated on heap
-// Later: GC runs, stops all threads for collection
-// Pause time: 10-100ms (unacceptable for low-latency!)
+queue.put(new Event(...));  // Heap allocation
+// GC runs → 10-100ms pause → All threads stopped
 ```
 
-**4. False Sharing**
-```
-CPU Core 1 (Producer):
-  - Reads cache line containing queue.head
-  - Modifies queue.head
-  - Invalidates cache line on all other cores
+### False Sharing
 
-CPU Core 2 (Consumer):
-  - Reads cache line containing queue.tail (same cache line!)
-  - Cache miss! Fetch from main memory (100+ cycles)
-  - 100ns wasted
+```
+CPU Core 1: Modifies queue.head → Invalidates cache line
+CPU Core 2: Reads queue.tail (same cache line) → Cache miss → 100ns penalty
 ```
 
 ---
 
 ## Enter LMAX Disruptor: The Game Changer {#enter-disruptor}
 
-### What is LMAX Disruptor?
-
-Created by LMAX Exchange (high-frequency trading platform) to process **6 million orders/sec** with **sub-millisecond latency**.
+Created by LMAX Exchange for processing **6 million orders/sec** with sub-millisecond latency.
 
 **Core Principles:**
-1. **Lock-free**: Uses CAS (Compare-And-Swap) instead of locks
-2. **Pre-allocated**: Objects created once at startup, reused forever
-3. **Sequential**: Events stored in circular array (cache-friendly)
-4. **Batching**: Process multiple events per consumer wake-up
-5. **Cache-conscious**: Prevents false sharing with padding
+1. **Lock-free**: CAS (Compare-And-Swap) instead of locks
+2. **Pre-allocated**: Zero-allocation in hot path
+3. **Sequential**: Cache-friendly circular array
+4. **Batching**: Amortized overhead
+5. **Cache-conscious**: Padding prevents false sharing
 
-### Key Components
-
+**Architecture:**
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         PRODUCERS (Multiple)                         │
-│     Write events using CAS-based sequence claiming                   │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                   RING BUFFER (Pre-allocated)                        │
-│  ┌────┬────┬────┬────┬────┬────┬────┬────┐                         │
-│  │ E0 │ E1 │ E2 │ E3 │ E4 │ E5 │ E6 │ E7 │ ... (8192 slots)        │
-│  └────┴────┴────┴────┴────┴────┴────┴────┘                         │
-│   ▲                                    ▲                             │
-│   │ Producer Sequence (write)          │ Consumer Sequence (read)   │
-└───┴────────────────────────────────────┴─────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      CONSUMERS (Single or Multiple)                  │
-│     Process events in batches, update sequence atomically           │
-└─────────────────────────────────────────────────────────────────────┘
+PRODUCERS (Multi) → CAS-based claiming
+    ↓
+RING BUFFER [Pre-allocated slots] ← Producer/Consumer sequences
+    ↓
+CONSUMERS (Single/Multi) → Batch processing
 ```
 
 ---
@@ -848,169 +785,26 @@ Thread 3:  current=100, next=101, CAS(100,101) → FAIL
 
 ## Wait Strategies Explained {#wait-strategies}
 
-### Available Strategies
-
-| Strategy | Latency | CPU Usage | Use Case |
-|----------|---------|-----------|----------|
+| Strategy | Latency | CPU | Use Case |
+|----------|---------|-----|----------|
 | **BusySpinWaitStrategy** | ~50ns | 100% | Ultra-low latency, dedicated cores |
-| **YieldingWaitStrategy** | ~150ns | ~90% | **Default** - Low latency + reasonable CPU |
-| **SleepingWaitStrategy** | ~1-100ms | ~5-10% | Latency not critical, save CPU |
-| **BlockingWaitStrategy** | ~10-50ms | ~0% | Don't care about latency |
+| **YieldingWaitStrategy** | ~150ns | ~90% | **Default** - Best balance |
+| **SleepingWaitStrategy** | ~1-100ms | ~5% | Batch processing |
+| **BlockingWaitStrategy** | ~10-50ms | ~0% | Development only |
 
-### 1. BusySpinWaitStrategy
-
-```java
-public long waitFor(long sequence) {
-    long availableSequence;
-    
-    while ((availableSequence = cursor.get()) < sequence) {
-        // Busy-spin forever!
-        // Burns CPU but lowest latency possible
-    }
-    
-    return availableSequence;
-}
-```
-
-**When to use:**
-- High-frequency trading
-- Arbitrage bots
-- Dedicated CPU cores available
-- Every nanosecond counts
-
-**Cost:** 1 full CPU core at 100% utilization
-
-### 2. YieldingWaitStrategy (Our Default)
+### YieldingWaitStrategy (Recommended)
 
 ```java
-public long waitFor(long sequence) {
-    int counter = 100;
-    
-    while (cursor.get() < sequence) {
-        counter = applyWaitMethod(counter);
-    }
-    
-    return cursor.get();
-}
-
-private int applyWaitMethod(int counter) {
-    if (counter == 0) {
+while (cursor.get() < sequence) {
+    if (counter-- == 0) {
         Thread.yield();  // Let other threads run
-        return 100;
+        counter = 100;   // Reset
     }
-    return counter - 1;  // Busy-spin
 }
 ```
 
-**Behavior:**
-- Spin 100 times (busy-wait)
-- Yield CPU to other threads
-- Repeat
-
-**When to use:**
-- **Production default** for low-latency systems
-- Good balance of latency and CPU usage
-- Multiple services on same machine
-
-**Performance:**
-```
-Latency: ~100-200ns
-CPU: ~90% (10% saved by yielding)
-Good for: 50K-500K events/sec
-```
-
-### 3. SleepingWaitStrategy
-
-```java
-public long waitFor(long sequence) {
-    int counter = 200;
-    
-    while (cursor.get() < sequence) {
-        if (counter > 100) {
-            counter--;
-        } else if (counter > 0) {
-            Thread.yield();
-            counter--;
-        } else {
-            LockSupport.parkNanos(1);  // Sleep 1ns (OS rounds to ~1ms)
-        }
-    }
-    
-    return cursor.get();
-}
-```
-
-**Behavior:**
-1. Spin 100 times
-2. Yield 100 times  
-3. Sleep progressively (1ms → 10ms → 100ms)
-
-**When to use:**
-- Batch processing
-- Non-latency-sensitive workloads
-- Want to save CPU/battery
-
-**Performance:**
-```
-Latency: 1-100ms
-CPU: ~5-10%
-Good for: <10K events/sec
-```
-
-### 4. BlockingWaitStrategy
-
-```java
-public long waitFor(long sequence) {
-    if (cursor.get() < sequence) {
-        lock.lock();
-        try {
-            while (cursor.get() < sequence) {
-                processorNotifyCondition.await();  // Block thread
-            }
-        } finally {
-            lock.unlock();
-        }
-    }
-    
-    return cursor.get();
-}
-```
-
-**Behavior:** Uses `Lock` and `Condition` (like BlockingQueue)
-
-**When to use:**
-- You don't care about latency at all
-- Want minimum CPU usage
-- Testing/development
-
-**Performance:**
-```
-Latency: 10-50ms (context switch overhead)
-CPU: ~0% when idle
-Not recommended for production
-```
-
-### Choosing the Right Strategy
-
-```yaml
-# Development/Testing
-candle:
-  aggregation:
-    disruptor:
-      wait-strategy: SLEEPING  # Save laptop battery
-
-# Production (Default)
-candle:
-  aggregation:
-    disruptor:
-      wait-strategy: YIELDING  # Best balance
-
-# Ultra-Low Latency (Dedicated servers)
-candle:
-  aggregation:
-    disruptor:
-      wait-strategy: BUSY_SPIN  # Burn CPU for lowest latency
-```
+**Behavior:** Spin 100 times, yield, repeat  
+**Sweet spot:** Low latency (~150ns) with reasonable CPU usage (~90%)
 
 ---
 
@@ -1393,457 +1187,96 @@ candle:
 
 ## Performance Characteristics {#performance}
 
-### Why Disruptor is 10x Faster
+### Why 10x Faster
 
-**1. Zero Locks**
+1. **Zero Locks**: CAS vs `synchronized` → <50μs vs ~10ms
+2. **Zero Allocation**: Pre-allocated wrappers → No GC pauses
+3. **Sequential Access**: Ring buffer in L2 cache → ~1ns vs ~60ns
+4. **Batching**: 10 events = 1 context switch (not 10)
+5. **Cache Padding**: No false sharing → ~1ns vs ~100ns
+
+### Measured Results
+
+**Our System (8192 buffer, YieldingWaitStrategy):**
 ```
-BlockingQueue:
-  - synchronized blocks
-  - Lock contention
-  - Thread parking/unparking
-  - Latency: ~10ms
-
-Disruptor:
-  - CAS operations
-  - No contention (each thread owns sequence)
-  - No thread parking
-  - Latency: <50μs
-```
-
-**2. Zero Allocation**
-```
-BlockingQueue:
-  queue.put(new Event(...));  // GC pressure!
-  GC pause: 10-100ms
-
-Disruptor:
-  wrapper.event = event;  // Reuse pre-allocated wrapper
-  GC pause: 0ms from Disruptor
+Throughput: 100K+ events/sec
+Latency p99: <50μs (vs 10ms with BlockingQueue)
+CPU: 90% productive work
+GC: 0ms from Disruptor
 ```
 
-**3. Sequential Access**
-```
-Array-based ring buffer:
-  - CPU cache friendly
-  - Prefetcher friendly
-  - ~1-3ns per access (L2 cache)
-
-HashMap/Tree:
-  - Random access
-  - Cache misses
-  - ~60ns per access (main RAM)
-```
-
-**4. Batching**
-```
-BlockingQueue:
-  10 events = 10 take() calls = 10 context switches
-
-Disruptor:
-  10 events = 1 batch = 1 context switch
-  10x less overhead
-```
-
-**5. Cache Line Padding**
-```
-Without padding:
-  False sharing between sequences
-  Cache invalidation on every write
-  ~100ns penalty
-
-With padding:
-  Each sequence on own cache line
-  No false sharing
-  ~1ns access
-```
-
-### Measured Performance
-
-**Our System:**
-```
-Configuration:
-  - Buffer: 8192 slots
-  - Wait Strategy: YIELDING
-  - Producers: 1 (ProductionScaleDataGenerator)
-  - Consumers: 1 (CandleAggregator)
-
-Results:
-  - Throughput: 100K+ events/sec
-  - Latency p50: <10μs
-  - Latency p99: <50μs
-  - Latency p99.9: <100μs
-  - GC from Disruptor: 0ms
-  - CPU usage: ~90% (productive work)
-```
-
-**vs Traditional Queue:**
-```
-ArrayBlockingQueue (same workload):
-  - Throughput: ~10K events/sec
-  - Latency p99: ~10ms
-  - GC pauses: 10-100ms
-  - CPU usage: 40% (rest is waiting)
-```
-
-**Performance Breakdown:**
-```
-1 event processing time:
-  ─────────────────────────────────────────
-  Disruptor overhead:    2ns   (CAS)
-  Get from buffer:       1ns   (array access)
-  Business logic:        100ns (CandleAggregator)
-  Update sequence:       2ns   (volatile write)
-  ─────────────────────────────────────────
-  Total:                 105ns per event
-  
-  Throughput = 1 / 105ns = 9.5M events/sec
-  (Our limit is business logic, not Disruptor!)
-```
-
-### Scalability
-
-**Single Consumer Limit:**
-```
-Best case: 1-2M events/sec per consumer
-Our case: 100K events/sec (business logic bound)
-```
-
-**Multiple Consumers:**
-```java
-disruptor.handleEventsWith(
-    handler1, handler2, handler3, handler4
-);
-
-Theoretical: 4x throughput
-Practical: 3x (some coordination overhead)
-```
-
-**Horizontal Scaling:**
-```
-Single JVM: 100K events/sec
-4 JVMs (sharded by symbol): 400K events/sec
-10 JVMs: 1M events/sec
-```
+**Single Consumer Limit:** 1-2M events/sec (our bottleneck is business logic at 100K/sec)
 
 ---
 
 ## Common Pitfalls & Best Practices {#pitfalls}
 
 ### ❌ Pitfall 1: Non-Power-of-2 Buffer Size
-
 ```yaml
-# WRONG
-candle:
-  aggregation:
-    disruptor:
-      buffer-size: 8000  # Not power of 2!
-```
-
-**Impact:** Disruptor will throw exception at startup!
-
-**Fix:**
-```yaml
-# CORRECT
-buffer-size: 8192  # 2^13
+buffer-size: 8000  # WRONG - throws exception!
+buffer-size: 8192  # CORRECT (2^13)
 ```
 
 ### ❌ Pitfall 2: Blocking in Event Handler
-
 ```java
-// WRONG
-private void handleEvent(BidAskEventWrapper wrapper, long sequence, boolean endOfBatch) {
-    aggregator.processEvent(wrapper.event);
-    
-    // DON'T DO THIS!
-    Thread.sleep(100);           // Blocks consumer thread
-    repository.save(result);     // Synchronous I/O
-    httpClient.post(url, data);  // Network call
+// WRONG - blocks consumer thread
+private void handleEvent(...) {
+    Thread.sleep(100);           // DON'T!
+    repository.save(result);     // Sync I/O - DON'T!
 }
-```
 
-**Impact:** Consumer becomes slow, buffer fills, events dropped!
-
-**Fix:**
-```java
-// CORRECT
-private void handleEvent(BidAskEventWrapper wrapper, long sequence, boolean endOfBatch) {
-    // Process event in-memory only
-    aggregator.processEvent(wrapper.event);
-    
-    // Offload I/O to separate thread/queue
+// CORRECT - offload I/O
+private void handleEvent(...) {
+    aggregator.processEvent(event);  // In-memory only
     if (endOfBatch) {
-        ioExecutor.submit(() -> {
-            repository.flush();  // Batch I/O
-        });
+        ioExecutor.submit(() -> repository.flush());
     }
 }
 ```
 
 ### ❌ Pitfall 3: Mutable Events
-
 ```java
-// WRONG
-class MutableEvent {
-    public String symbol;  // Mutable!
-    public double price;
-}
+// WRONG - consumer sees corrupted data
+class MutableEvent { public String symbol; }
 
-// Producer
-event.symbol = "BTCUSD";
-publisher.publish(event);
-
-// Later (before consumer processes)
-event.symbol = "ETHUSD";  // OOPS! Changed while in buffer!
+// CORRECT - use immutable records
+record BidAskEvent(String symbol, double bid, double ask) {}
 ```
 
-**Impact:** Consumer sees corrupted data!
-
-**Fix:**
+### ✅ Best Practice: Monitor Buffer Utilization
 ```java
-// CORRECT
-record BidAskEvent(
-    String symbol,   // Immutable
-    double bid,
-    double ask,
-    long timestamp
-) {}
-```
-
-### ❌ Pitfall 4: Ignoring Buffer Full
-
-```java
-// WRONG
-eventPublisher.tryPublish(event);
-// Ignore return value - might be dropped!
-```
-
-**Impact:** Silent data loss!
-
-**Fix:**
-```java
-// CORRECT
-boolean published = eventPublisher.tryPublish(event);
-if (!published) {
-    droppedEventsCounter.increment();
-    log.warn("Event dropped: buffer full for {}", symbol);
-    
-    // Optional: Persist to disk, send alert, etc.
+double utilization = (1.0 - remaining / total) * 100;
+if (utilization > 80) {
+    log.warn("High buffer pressure: {}%", utilization);
 }
 ```
 
-### ✅ Best Practice 1: Monitor Buffer Utilization
-
-```java
-@Scheduled(fixedRate = 1000)
-public void reportBufferHealth() {
-    long remaining = ringBuffer.remainingCapacity();
-    long total = ringBuffer.getBufferSize();
-    double utilization = (1.0 - remaining / (double) total) * 100;
-    
-    meterRegistry.gauge("disruptor.buffer.utilization", utilization);
-    
-    if (utilization > 80) {
-        log.warn("High buffer utilization: {}%", utilization);
-    }
-}
-```
-
-### ✅ Best Practice 2: Batch Processing
-
-```java
-private void handleEvent(BidAskEventWrapper wrapper, long sequence, boolean endOfBatch) {
-    // Accumulate in batch
-    batch.add(wrapper.event);
-    
-    if (endOfBatch) {
-        // Process entire batch at once
-        aggregator.processBatch(batch);
-        batch.clear();
-    }
-}
-```
-
-### ✅ Best Practice 3: Exception Handling
-
+### ✅ Best Practice: Exception Handling
 ```java
 disruptor.setDefaultExceptionHandler(new ExceptionHandler<>() {
-    @Override
-    public void handleEventException(Throwable ex, long sequence, BidAskEventWrapper event) {
-        log.error("Error processing sequence {}: {}", sequence, event.event, ex);
-        errorCounter.increment();
+    public void handleEventException(Throwable ex, long seq, Event e) {
+        log.error("Error at sequence {}", seq, ex);
         // Don't rethrow - would stop entire pipeline!
     }
-    
-    @Override
-    public void handleOnStartException(Throwable ex) {
-        log.error("Startup error", ex);
-        throw new RuntimeException(ex);  // Fail fast on startup
-    }
-    
-    @Override
-    public void handleOnShutdownException(Throwable ex) {
-        log.error("Shutdown error", ex);
-    }
 });
-```
-
-### ✅ Best Practice 4: Graceful Shutdown
-
-```java
-@PreDestroy
-public void shutdown() {
-    try {
-        log.info("Shutting down Disruptor...");
-        
-        // Stop accepting new events
-        // (Application should stop calling tryPublish)
-        
-        // Shutdown Disruptor (waits for consumer to finish)
-        disruptor.shutdown(5, TimeUnit.SECONDS);
-        
-        log.info("Disruptor shutdown complete");
-    } catch (Exception e) {
-        log.error("Error during shutdown", e);
-    }
-}
 ```
 
 ---
 
 ## Real-World Results {#results}
 
-### Our System Performance
+### Production Performance
 
-**Hardware:**
-```
-CPU: Intel Core i7-12700K (12 cores, 20 threads)
-RAM: 32GB DDR4-3200
-JVM: Java 21 with G1GC
-```
+**Hardware:** Intel i7-12700K, 32GB RAM, Java 21 + G1GC
 
-**Load Test:**
-```
-Producer: ProductionScaleDataGenerator
-  - 16 instruments
-  - 100K events/sec target
-  - Running continuously for 1 hour
-
-Consumer: CandleAggregator
-  - Processes all 5 intervals (1s, 5s, 1m, 15m, 1h)
-  - Updates Chronicle Map storage
-```
+**Load:** 100K events/sec sustained for 1 hour
 
 **Results:**
 ```
-Throughput:
-  - Actual: 102,345 events/sec (102% of target)
-  - Peak burst: 150K events/sec
-  - Sustained: 100K events/sec
-
-Latency (event → processed):
-  - p50: 8.2μs
-  - p95: 23.4μs
-  - p99: 47.1μs
-  - p99.9: 89.3μs
-  - p99.99: 156.2μs
-
-Ring Buffer:
-  - Size: 8192 slots
-  - Average utilization: 12%
-  - Peak utilization: 67%
-  - Events dropped: 0
-
-GC Impact:
-  - From Disruptor: 0 bytes allocated
-  - From business logic: ~50MB/sec
-  - GC pause: <5ms (G1GC young collection)
-  
-CPU Usage:
-  - Disruptor threads: 90%
-  - Business logic: 80%
-  - System overhead: 10%
-
-Memory:
-  - Ring buffer: 200KB
-  - Chronicle Map: 2GB (off-heap)
-  - JVM heap: 1.2GB used / 4GB max
+Throughput: 102,345 events/sec (102% of target)
+Latency p99: 47.1μs (vs 12.3ms with BlockingQueue - 260x faster)
+Buffer utilization: 12% avg, 67% peak
+Events dropped: 0
+GC pauses: <5ms (G1GC young)
+CPU: 90% (vs 45% with BlockingQueue)
 ```
-
-### Before vs After Disruptor
-
-**Before (ArrayBlockingQueue):**
-```
-Throughput: 8,500 events/sec
-Latency p99: 12.3ms
-GC pauses: 50-100ms every 10 seconds
-Events dropped: 15% during bursts
-CPU usage: 45% (mostly waiting)
-```
-
-**After (LMAX Disruptor):**
-```
-Throughput: 102,345 events/sec  ← 12x improvement
-Latency p99: 47.1μs             ← 260x improvement
-GC pauses: <5ms                 ← 10-20x improvement
-Events dropped: 0%               ← 100% reliability
-CPU usage: 90%                   ← Productive work
-```
-
-### Cost Savings
-
-**Cloud costs (AWS c5.2xlarge):**
-```
-Before:
-  - Instances needed: 12 (to handle 100K events/sec)
-  - Cost: $0.34/hour × 12 = $4.08/hour
-  - Monthly: ~$3,000
-
-After:
-  - Instances needed: 1
-  - Cost: $0.34/hour
-  - Monthly: ~$250
-
-Savings: $2,750/month (92% reduction!)
-```
-
----
-
-## Conclusion
-
-You've learned:
-
-1. ✅ **Why** traditional queues are slow (locks, GC, context switches)
-2. ✅ **What** makes Disruptor fast (lock-free, pre-allocated, batching)
-3. ✅ **How** sequences coordinate (CAS-based claiming, cache padding)
-4. ✅ **When** to use each wait strategy (latency vs CPU trade-offs)
-5. ✅ **Where** the bottlenecks are (business logic, not Disruptor)
-
-### Key Takeaways
-
-**For Low-Latency Systems:**
-- Use Disruptor instead of BlockingQueue
-- Choose YieldingWaitStrategy for production
-- Power-of-2 buffer sizes only
-- Monitor buffer utilization
-- Handle back-pressure gracefully
-
-**Performance Formula:**
-```
-Lock-free (CAS) + Pre-allocation (no GC) + Sequential (cache-friendly) 
-+ Batching (amortized overhead) + Padding (no false sharing)
-= 10-100x faster than traditional queues
-```
-
-### Next Steps
-
-1. **Try it yourself**: Clone our repo and run benchmarks
-2. **Experiment**: Change buffer size, wait strategy, see impact
-3. **Measure**: Add metrics, track latency/throughput
-4. **Optimize**: Profile your business logic (likely bottleneck)
-5. **Scale**: Add more consumers if needed
-
-### Resources
-
-- [LMAX Disruptor GitHub](https://github.com/LMAX-Exchange/disruptor)
-- [Technical Paper](https://lmax-exchange.github.io/disruptor/disruptor.html)
-- [Our Implementation](https://github.com/0xkanth/candle-aggregation-service)

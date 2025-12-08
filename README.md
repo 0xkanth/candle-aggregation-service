@@ -821,7 +821,8 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW
 
 ## 📚 Additional Documentation
 
-- **[QUICKSTART.md](QUICKSTART.md)** - Automated setup, environment configuration, troubleshooting
-- **[CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)** - Visual examples, algorithm walkthrough, real-world scenarios
-- **[DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)** - Market data generators explained, configuration guide
-- **[PERFORMANCE_BENCHMARKING.md](./PERFORMANCE_BENCHMARKING.md)** - Benchmarking instructions and metrics
+- **[Quickstart](QUICKSTART.md)** - Automated setup, environment configuration, troubleshooting
+- **[Candle Aggregation explainer](./CANDLE_AGGREGATION_EXPLAINED.md)** - Visual examples, algorithm walkthrough, real-world scenarios
+- **[Data Generators and Samplers](./DATA_GENERATOR_COMPARISON.md)** - Market data generators explained, configuration guide
+- **[Performance Benchmarking](./PERFORMANCE_BENCHMARKING.md)** - Benchmarking instructions and metrics
+- **[Hybrid Architecture Overview](./HYBRID_ARCHITECTURE.md)** - Hybrid Architecture Proposal Overview

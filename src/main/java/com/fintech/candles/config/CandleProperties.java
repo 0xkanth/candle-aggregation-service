@@ -21,13 +21,13 @@ public class CandleProperties {
     
     @Data
     public static class Storage {
-        private ChronicleMapConfig chronicleMap = new ChronicleMapConfig();
+        private TimescaleDBConfig timescaledb = new TimescaleDBConfig();
         
         @Data
-        public static class ChronicleMapConfig {
-            private String path = "./data/chronicle-candles.dat";
-            private long entries = 10_000_000L;
-            private int averageKeySize = 30;
+        public static class TimescaleDBConfig {
+            private boolean enabled = true;
+            private int batchSize = 100;
+            private boolean asyncWrite = true;
         }
     }
     

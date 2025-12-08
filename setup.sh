@@ -2,7 +2,7 @@
 
 ################################################################################
 # Candle Aggregation Service - Simple Setup Script
-# Builds the project and extracts JAR for Chronicle Map compatibility
+# Builds the project
 ################################################################################
 
 set -e  # Exit on error
@@ -43,6 +43,34 @@ fi
 echo "✓ Maven detected"
 echo ""
 
+# Check Docker
+echo "Checking Docker..."
+if ! command -v docker &> /dev/null; then
+    echo "⚠️  WARNING: Docker not found"
+    echo "   TimescaleDB requires Docker. Install from: https://docs.docker.com/get-docker/"
+    echo ""
+else
+    echo "✓ Docker detected"
+    echo ""
+    
+    # Start TimescaleDB
+    echo "Starting TimescaleDB..."
+    if [ -f "docker-compose.yml" ]; then
+        docker-compose up -d
+        if [ $? -eq 0 ]; then
+            echo "✓ TimescaleDB started"
+            echo "   Waiting 3 seconds for database initialization..."
+            sleep 3
+        else
+            echo "⚠️  WARNING: Failed to start TimescaleDB"
+            echo "   You may need to start it manually: docker-compose up -d"
+        fi
+    else
+        echo "⚠️  WARNING: docker-compose.yml not found"
+    fi
+fi
+echo ""
+
 # Clean build
 echo "Building project (this may take 1-2 minutes)..."
 mvn clean package -DskipTests
@@ -59,17 +87,6 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "✓ Build successful"
-echo ""
-
-# Extract JAR
-echo "Extracting JAR for Chronicle Map compatibility..."
-rm -rf extracted
-mkdir extracted
-cd extracted
-jar -xf ../target/candle-aggregation-service-1.0.0.jar
-cd ..
-
-echo "✓ JAR extracted to ./extracted/"
 echo ""
 
 # Create data directory

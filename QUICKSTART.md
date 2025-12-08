@@ -3,15 +3,21 @@
 ## Prerequisites
 - Java 21+
 - Maven 3.8+
+- Docker & Docker Compose (for TimescaleDB)
 
 ## Running the Service
 
-1. **Build the project:**
+1. **Start TimescaleDB:**
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **Build the project:**
    ```bash
    mvn clean package -DskipTests
    ```
 
-2. **Start the service:**
+3. **Start the service:**
    ```bash
    ./start-service.sh
    ```
@@ -68,4 +74,4 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW
 - `./performance-report.sh` — Full performance summary
 - `./monitor-throughput.sh` — Real-time throughput
 - `./measure-latency.sh` — Latency metrics
-- `./measure-chronicle-map.sh` — Storage performance
+- `./coverage-report.sh` — Generate test coverage report with JaCoCo

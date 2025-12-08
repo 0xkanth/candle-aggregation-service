@@ -6,6 +6,42 @@ spring:
     virtual:
       enabled: true
 
+  # TimescaleDB DataSource Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5433/candledb
+    username: candle_user
+    password: candle_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # Connection pool settings
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: CandleDB-Pool
+      # Performance tuning
+      auto-commit: false
+      read-only: false
+      
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate  # Don't auto-create schema (use init.sql)
+    properties:
+      hibernate:
+        # Batch insert optimization
+        jdbc:
+          batch_size: 50
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+        # Query performance
+        generate_statistics: false
+        use_sql_comments: false
+        format_sql: false
+    show-sql: false  # Set to true for debugging SQL
+
 server:
   port: 8080
   compression:
@@ -44,10 +80,11 @@ logging:
 
 candle:
   storage:
-    chronicle-map:
-      path: ./data/chronicle-candles.dat
-      entries: 10000000
-      average-key-size: 30
+    # TimescaleDB configuration
+    timescaledb:
+      enabled: true                 # Enable TimescaleDB storage
+      batch-size: 100               # Batch writes for better performance
+      async-write: true             # Non-blocking async writes
   aggregation:
     disruptor:
       buffer-size: 8192

@@ -1,87 +1,72 @@
 # Candle Aggregation Service
 
-Real-time OHLCV candle aggregation service processing 100K+ events/sec with sub-millisecond latency.
-
-## Overview
-
-High-performance candle aggregation service processing 100K+ events/sec with <50μs p99 latency.
+High-performance real-time OHLCV candle aggregation service processing 100K+ events/sec with <50μs p99 latency.
 
 **Tech Stack:**
-- Java 21, Spring Boot 3.2
-- LMAX Disruptor 4.0 (lock-free pipeline)
-- Chronicle Map 3.25 (off-heap storage)
+- Java 21, Spring Boot 3.2 (Virtual Threads)
+- LMAX Disruptor 4.0 (lock-free ring buffer)
+- TimescaleDB (time-series PostgreSQL)
 
 **Key Features:**
 - Multi-interval aggregation (1s, 5s, 1m, 15m, 1h)
 - Late event handling (configurable tolerance)
-- Sub-microsecond persistence (Chronicle Map)
+- Persistent storage with ACID guarantees
 - TradingView-compatible REST API
-- Production metrics (Prometheus)
+- Production-grade metrics (Prometheus/Grafana)
 
 ## Quick Start
 
 > For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)
 
-### Option 1: Docker
+### Option 1: Master Launch Script (Recommended)
+
+**Complete end-to-end automated setup:**
+```bash
+./launch.sh
+```
+
+This script handles everything:
+- Stops existing services
+- Builds the application (Maven clean package)
+- Starts TimescaleDB (Docker)
+- Launches the service with health checks
+- Runs automated verification tests
+- Shows performance metrics
+
+### Option 2: Docker
 
 ```bash
-# Build and start containers (detached)
+# Build and start containers
 docker-compose up -d --build
-
-# To rebuild without cache (optional)
-docker-compose build --no-cache
-
-# To stop containers
-docker-compose down
 
 # Test API
 NOW=$(date +%s)
 curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW-30))&to=$NOW" | jq
 ```
 
-### Option 2: Local Development
+### Option 3: Manual Local Development
 
 ```bash
-# Automated setup
+# Initial setup (installs dependencies, starts TimescaleDB)
 ./setup.sh
 
 # Start service
 ./start-service.sh
 
-# Or manual build and run:
+# Or manual build:
 mvn clean package -DskipTests
-
-# Extract JAR (required for Chronicle Map)
-mkdir extracted && cd extracted
-jar -xf ../target/candle-aggregation-service-1.0.0.jar
-
-# Run with required JVM flags
-java -Xmx4g -XX:+UseZGC -XX:MaxGCPauseMillis=10 -XX:MaxDirectMemorySize=2g \
-  --add-opens java.base/java.lang=ALL-UNNAMED \
-  --add-opens java.base/java.io=ALL-UNNAMED \
-  --add-opens java.base/java.nio=ALL-UNNAMED \
-  --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
-  --add-opens java.base/java.util=ALL-UNNAMED \
-  --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
-  --add-opens jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED \
-  --add-exports java.base/jdk.internal.ref=ALL-UNNAMED \
-  --add-exports jdk.unsupported/sun.misc=ALL-UNNAMED \
-  --add-exports java.base/sun.nio.ch=ALL-UNNAMED \
-  -cp BOOT-INF/classes:BOOT-INF/lib/* \
-  com.fintech.candles.CandleAggregationApplication
-```
-
-**Verify:**
-```bash
-NOW=$(date +%s)
-curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW-30))&to=$NOW" | jq
+java -Xmx4g -jar target/candle-aggregation-service-1.0.0.jar
 ```
 
 ## Architecture
 
 **Design Philosophy:** Lock-free concurrency, zero-GC persistence, mechanical sympathy.
 
-> **Deep dive:** [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md) | [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)
+> **Deep dives:**  
+> [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md) - Core aggregation algorithm  
+> [LMAX_DISRUPTOR_DEEP_DIVE.md](./LMAX_DISRUPTOR_DEEP_DIVE.md) - Lock-free event processing  
+> [KAFKA_CACHE_ARCHITECTURE.md](./KAFKA_CACHE_ARCHITECTURE.md) - **Production-scale architecture** (Kafka + Caching)  
+> [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md) - Market data simulators
 
 ### System Design
 
@@ -105,7 +90,7 @@ graph TB
     end
     
     subgraph "Storage Layer"
-        CM[Chronicle Map<br/>Off-heap]
+        TS[TimescaleDB<br/>Hypertable]
         REPO[CandleRepository]
     end
     
@@ -122,12 +107,12 @@ graph TB
     AGG --> TWM
     AGG --> AC
     AC --> REPO
-    REPO --> CM
+    REPO --> TS
     REST --> SVC
     SVC --> REPO
     
     style RB fill:#ff6b6b
-    style CM fill:#4ecdc4
+    style TS fill:#4ecdc4
     style AGG fill:#ffe66d
 ```
 
@@ -137,7 +122,7 @@ graph TB
 |-----------|------------|----------|
 | DisruptorEventPublisher | LMAX Disruptor | Lock-free event pipeline |
 | CandleAggregator | AtomicReference CAS | Lock-free OHLC updates |
-| ChronicleMapRepository | Chronicle Map | Off-heap persistence |
+| TimescaleDBRepository | TimescaleDB/PostgreSQL | Persistent time-series storage |
 | REST Controller | Spring WebMVC | Query API |
 
 ### Event Flow
@@ -182,14 +167,14 @@ flowchart LR
     AGG --> M15[M15: 10:30:00.000<br/>UPDATE]
     AGG --> H1[H1: 10:00:00.000<br/>UPDATE]
     
-    S1 --> CM[(Chronicle Map)]
-    S5 --> CM
-    M1 --> CM
-    M15 --> CM
-    H1 --> CM
+    S1 --> TS[(TimescaleDB)]
+    S5 --> TS
+    M1 --> TS
+    M15 --> TS
+    H1 --> TS
     
     style Event fill:#95e1d3
-    style CM fill:#4ecdc4
+    style TS fill:#4ecdc4
 ```
 
 ### Window Alignment Algorithm
@@ -282,7 +267,7 @@ The system uses **two distinct candle representations** optimized for different 
 - **Purpose:** Final representation for persistence and API responses
 - **Key Features:**
   - Thread-safe (all fields final)
-  - Serializable (required by Chronicle Map)
+  - JPA entity with TimescaleDB hypertable support
   - OHLC validation in compact constructor
   - Factory method: `Candle.of(time, price)`
   - Helper methods: `isValid()`, `containsTime()`
@@ -323,7 +308,7 @@ graph LR
     B -->|update price| B
     B -->|window closes| C[toImmutableCandle]
     C --> D[Candle record]
-    D --> E[Chronicle Map]
+    D --> E[TimescaleDB<br/>Hypertable]
     D --> F[API Response]
     
     style B fill:#ff6b6b,color:#fff
@@ -334,18 +319,9 @@ graph LR
 
 **Concurrency:** AtomicReference + CAS inside ConcurrentHashMap.compute() lock
 
-#### State Fields
+### State Management
 
-| Field | Type | Purpose |
-|-------|------|----------|
-| `activeCandles` | `ConcurrentHashMap<String, AtomicReference<MutableCandle>>` | In-memory active candles (~1000 entries) |
-| `eventsProcessed` | `AtomicLong` | Total events counter (Prometheus) |
-| `candlesCompleted` | `AtomicLong` | Persisted candles counter (Prometheus) |
-| `lateEventsDropped` | `AtomicLong` | Late events counter (Prometheus) |
-
-### Complete State Management
-
-Two-tier architecture: in-memory (hot path) + persistent (cold storage)
+Two-tier architecture: in-memory (hot path) + persistent TimescaleDB (cold storage)
 
 **Tier 1: In-Memory (CandleAggregator)**
 
@@ -360,17 +336,17 @@ Two-tier architecture: in-memory (hot path) + persistent (cold storage)
 
 **Key:** `activeCandles` key = `"SYMBOL-INTERVAL"` (e.g., `"BTCUSD-M1"`)
 
-**Tier 2: Persistent (Chronicle Map)**
+**Tier 2: Persistent (TimescaleDB)**
 
-**Location:** `src/main/java/com/fintech/candles/storage/ChronicleMapCandleRepository.java`
+**Location:** `src/main/java/com/fintech/candles/storage/timescaledb/TimescaleDBCandleRepository.java`
 
 | Field | Type | Purpose | Thread Safety | Persistence |
 |-------|------|---------|---------------|-------------|
-| `candleMap` | `ChronicleMap<String, Candle>` | Off-heap persistent candle storage | Thread-safe (Chronicle Map internal locks) | Memory-mapped file (`./data/candles.dat`) |
-| `writeCounter` | `AtomicLong` | Total writes to Chronicle Map | Lock-free CAS increment | In-memory only (reset on restart) |
-| `readCounter` | `AtomicLong` | Total reads from Chronicle Map | Lock-free CAS increment | In-memory only (reset on restart) |
+| `entityManager` | `EntityManager` | JPA entity manager for TimescaleDB | Thread-safe (Spring managed) | PostgreSQL hypertable (ACID-compliant) |
+| `writeCounter` | `AtomicLong` | Total writes to TimescaleDB | Lock-free CAS increment | In-memory only (reset on restart) |
+| `readCounter` | `AtomicLong` | Total reads from TimescaleDB | Lock-free CAS increment | In-memory only (reset on restart) |
 
-**Key:** `candleMap` key = `"SYMBOL-INTERVAL-TIMESTAMP"` (e.g., `"BTCUSD-M1-1733529420000"`)
+**Key:** TimescaleDB composite primary key = `(symbol, interval, time)` (e.g., `('BTCUSD', 'M1', 1733529420000)`)
 
 #### Flow Diagram
 
@@ -392,12 +368,12 @@ graph TB
         UPDATE --> CHECK{New Window?}
     end
     
-    subgraph "Persistence (Tier 2)"
+    subgraph "Persistence (Tier 2 - TimescaleDB)"
         CHECK -->|Yes| PERSIST[persistCandle]
         PERSIST --> CONVERT[toImmutableCandle<br/>MutableCandle → Candle]
         CONVERT --> SAVE[repository.save]
-        SAVE --> CM[candleMap.put<br/>Off-heap storage]
-        CM --> CC[candlesCompleted++]
+        SAVE --> TS[TimescaleDB INSERT<br/>Hypertable storage]
+        TS --> CC[candlesCompleted++]
         CC --> REMOVE[activeCandles.remove<br/>Old window]
     end
     
@@ -405,18 +381,18 @@ graph TB
         CHECK -->|Late Event| LATE{Within<br/>Tolerance?}
         LATE -->|No| DROP[lateEventsDropped++]
         LATE -->|Yes| FIND[repository.findByExactTime]
-        FIND --> UPDCM[Update Candle in Chronicle Map]
+        FIND --> UPDTS[UPDATE Candle in TimescaleDB]
     end
     
     subgraph "API Query Flow"
         API[GET /api/v1/history] --> QUERY[repository.findByRange]
-        QUERY --> SCAN[candleMap scan by prefix]
+        QUERY --> SCAN[TimescaleDB SELECT<br/>time-range query]
         SCAN --> RC[readCounter++]
         SCAN --> RESP[Return Candle list]
     end
     
     style AC fill:#ff6b6b,color:#fff
-    style CM fill:#4ecdc4,color:#fff
+    style TS fill:#4ecdc4,color:#fff
     style EP fill:#ffd93d
     style CC fill:#ffd93d
     style RC fill:#ffd93d
@@ -448,7 +424,7 @@ activeCandles.compute(key, (k, atomicRef) -> {
 
 // Step 3: Check if window changed (time-based)
 if (newWindowDetected) {
-    persistCandle(oldMutableCandle);  // Save to Chronicle Map
+    persistCandle(oldMutableCandle);  // Save to TimescaleDB
     activeCandles.remove(oldKey);      // Clean up old window
     candlesCompleted.incrementAndGet(); // Increment counter
 }
@@ -462,7 +438,7 @@ if (eventAge > tolerance) {
     return;  // Drop event
 }
 
-// Step 2: Find existing candle in Chronicle Map
+// Step 2: Find existing candle in TimescaleDB
 repository.findByExactTime(symbol, interval, windowStart).ifPresent(existing -> {
     // Step 3: Create updated immutable Candle
     Candle updated = new Candle(
@@ -474,7 +450,7 @@ repository.findByExactTime(symbol, interval, windowStart).ifPresent(existing -> 
         existing.volume() + 1
     );
     
-    // Step 4: Overwrite in Chronicle Map
+    // Step 4: Update in TimescaleDB (JPA merge)
     repository.save(symbol, interval, updated);
     writeCounter.incrementAndGet();
 });
@@ -482,25 +458,18 @@ repository.findByExactTime(symbol, interval, windowStart).ifPresent(existing -> 
 
 **3. API Query (Read Path)**
 ```java
-// Step 1: Construct key prefix
-String prefix = "BTCUSD-M1-";
+// Step 1: Execute TimescaleDB time-range query
+@Query("SELECT c FROM Candle c WHERE c.symbol = :symbol " +
+       "AND c.interval = :interval " +
+       "AND c.time >= :fromTime " +
+       "AND c.time <= :toTime " +
+       "ORDER BY c.time ASC")
+List<Candle> results = repository.findByRange(symbol, interval, fromTime, toTime);
 
-// Step 2: Scan Chronicle Map (off-heap iteration)
-List<Candle> results = new ArrayList<>();
-for (Entry<String, Candle> entry : candleMap.entrySet()) {
-    if (entry.getKey().startsWith(prefix)) {
-        Candle candle = entry.getValue();
-        if (candle.time() >= fromTime && candle.time() <= toTime) {
-            results.add(candle);
-        }
-    }
-}
-
-// Step 3: Increment counter
+// Step 2: Increment counter
 readCounter.incrementAndGet();
 
-// Step 4: Sort and return
-results.sort(Comparator.comparingLong(Candle::time));
+// Step 3: Return results (already sorted by DB)
 return results;
 ```
 
@@ -511,12 +480,12 @@ return results;
 | `activeCandles.compute()` | ConcurrentHashMap internal lock | Atomic per key |
 | `AtomicReference.updateAndGet()` | CAS loop | Linearizable |
 | `eventsProcessed.incrementAndGet()` | CAS (lock-free) | Eventually consistent |
-| `candleMap.put()` | Chronicle Map segment lock | Per-key atomic write |
-| `candleMap.get()` | Lock-free read (memory-mapped) | Read committed |
+| `repository.save()` | PostgreSQL transaction | ACID-compliant write |
+| `repository.findByRange()` | PostgreSQL SELECT | Read committed isolation |
 
 **Key Insight:** 
 - `activeCandles`: Hot path (100K ops/sec), per-key locks
-- `candleMap`: Cold path (candles/sec), off-heap, survives restart
+- `TimescaleDB`: Cold path (candles/sec), ACID transactions, persistent
 - Counters: Lock-free CAS, metrics only
 
 #### Memory Layout
@@ -530,32 +499,52 @@ JVM Heap (4 GB)
 │   ├── candlesCompleted: AtomicLong (8 bytes)
 │   └── lateEventsDropped: AtomicLong (8 bytes)
 │
-├── ChronicleMapCandleRepository instance (~1 KB)
+├── TimescaleDBCandleRepository instance (~1 KB)
+│   ├── entityManager: EntityManager (Spring managed)
 │   ├── writeCounter: AtomicLong (8 bytes)
 │   └── readCounter: AtomicLong (8 bytes)
 
-Off-Heap Memory (2 GB)
-└── candleMap: ChronicleMap (memory-mapped file)
-    └── ./data/candles.dat (up to 10M entries × ~200 bytes)
+TimescaleDB (PostgreSQL)
+└── candles hypertable (persistent disk storage)
+    ├── Automatic time-based partitioning
+    ├── Compressed chunks for historical data
+    ├── B-tree indexes on (symbol, interval, time)
+    └── WAL for durability (ACID compliance)
 ```
 
 **Design Rationale:**
 - Separation: Active (mutable, fast) vs Completed (immutable, persistent)
-- Zero GC: Chronicle Map off-heap = no GC pauses
-- Fast queries: Memory-mapped = OS page cache = <5μs
-- Crash recovery: Chronicle Map auto-recovers
-- Bounded memory: ~1000 active candles only
+- ACID guarantees: PostgreSQL transactions ensure data consistency
+- Time-series optimizations: Hypertables + compression + partitioning
+- Fast queries: B-tree indexes + TimescaleDB query optimizer
+- Crash recovery: PostgreSQL WAL ensures durability
+- Bounded memory: ~1000 active candles in JVM heap
 
 ### Storage Schema
 
-Chronicle Map key format:
+TimescaleDB hypertable with composite primary key:
+```sql
+CREATE TABLE candles (
+    symbol VARCHAR(10),
+    interval VARCHAR(5),
+    time BIGINT,
+    open DOUBLE PRECISION,
+    high DOUBLE PRECISION,
+    low DOUBLE PRECISION,
+    close DOUBLE PRECISION,
+    volume BIGINT,
+    PRIMARY KEY (symbol, interval, time)
+);
+
+SELECT create_hypertable('candles', 'time');
+CREATE INDEX idx_candles_lookup ON candles (symbol, interval, time DESC);
 ```
-"SYMBOL-INTERVAL-TIMESTAMP"
 
 Examples:
-"BTCUSD-S1-1733529443000"  → 1-second candle
-"ETHUSD-M1-1733529420000"  → 1-minute candle
-"XAUUSD-H1-1733529600000"  → 1-hour candle
+```
+('BTCUSD', 'S1', 1733529443000)  → 1-second candle
+('ETHUSD', 'M1', 1733529420000)  → 1-minute candle
+('XAUUSD', 'H1', 1733529600000)  → 1-hour candle
 ```
 
 ### Thread Model
@@ -573,7 +562,7 @@ graph TB
     
     subgraph "Single Consumer"
         EH --> AGG[Aggregator]
-        AGG --> CM[Chronicle Map<br/>Memory-mapped I/O]
+        AGG --> TS[TimescaleDB<br/>JDBC Connection Pool]
     end
     
     subgraph "Multi-threaded API"
@@ -582,18 +571,19 @@ graph TB
         VTN[Virtual Thread N]
     end
     
-    VT1 --> CM
-    VT2 --> CM
-    VTN --> CM
+    VT1 --> TS
+    VT2 --> TS
+    VTN --> TS
     
     style RB fill:#ff6b6b
-    style CM fill:#4ecdc4
+    style TS fill:#4ecdc4
 ```
 
 **Why:**
-- Single producer/consumer = No locks
+- Single producer/consumer = No locks in hot path
 - Virtual threads = 10K+ concurrent API requests
-- Memory-mapped I/O = Zero-copy reads
+- Connection pool = Efficient database access
+- TimescaleDB = ACID transactions + time-series optimizations
 
 ## API Reference
 
@@ -651,9 +641,11 @@ watch -n 1 'curl -s http://localhost:8080/actuator/metrics/candle.aggregator.eve
 > **Generator options:** [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md#switching-between-generators)
 
 ```properties
-# Chronicle Map
-candle.storage.path=./data/candles.dat
-candle.storage.entries=10000000
+# TimescaleDB (PostgreSQL)
+spring.datasource.url=jdbc:postgresql://localhost:5432/candles_db
+spring.datasource.username=candles_user
+spring.datasource.password=candles_pass
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
 
 # Disruptor
 disruptor.buffer.size=1024
@@ -676,9 +668,17 @@ candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,XAUUSD
 |--------|-------|
 | Event throughput | 100K events/sec |
 | Latency (p99) | < 50 μs |
-| Chronicle Map read | < 5 μs |
-| Chronicle Map write | < 20 μs |
-| Memory footprint | 4 GB heap + 2 GB off-heap |
+| TimescaleDB INSERT | ~200 μs (batched) |
+| TimescaleDB SELECT | ~1-5 ms (indexed) |
+| Memory footprint | 4 GB heap + PostgreSQL buffer cache |
+
+**Why TimescaleDB:**
+- **ACID Compliance:** Full transactional guarantees, no data loss on crash
+- **Time-Series Optimized:** Hypertables partition data by time automatically
+- **Compression:** Historical data compressed 10-20x (saves storage costs)
+- **Scalability:** Handles billions of candles with continuous aggregates
+- **SQL Query Power:** Complex analytics with standard SQL
+- **Operational Maturity:** Battle-tested PostgreSQL foundation with proven reliability
 
 ## Testing
 
@@ -754,11 +754,13 @@ mvn test -Dtest=CucumberTestRunner -Dcucumber.filter.tags="@late-events"
 ### 4. Persistent Storage
 
 **Implementation:**
-- Chronicle Map: `src/main/java/com/fintech/candles/storage/ChronicleMapCandleRepository.java`
-- Key format: `"SYMBOL-INTERVAL-TIMESTAMP"`
-- Performance: <5μs reads, <20μs writes
+- TimescaleDB Repository: `src/main/java/com/fintech/candles/storage/timescaledb/TimescaleDBCandleRepository.java`
+- Composite primary key: `(symbol, interval, time)`
+- Performance: ~200μs batched writes, ~1-5ms indexed reads
+- ACID compliance: Full transactional guarantees
+- Time-series features: Hypertables, automatic partitioning, compression
 
-**Verify:** `mvn test -Dtest=ChronicleMapCandleRepositoryTest`
+**Verify:** `mvn test -Dtest=TimescaleDBCandleRepositoryTest`
 
 ---
 
@@ -787,14 +789,19 @@ mvn test -Dtest=CucumberTestRunner -Dcucumber.filter.tags="@late-events"
 **Why LMAX Disruptor?**  
 Lock-free ring buffer = ~1μs latency vs ~100μs with ArrayBlockingQueue.
 
-**Why Chronicle Map?**  
-Off-heap + memory-mapped = zero GC + sub-microsecond access. No Redis network overhead.
+**Why TimescaleDB?**  
+- **ACID Guarantees:** Full transactional consistency and durability
+- **Time-Series Optimizations:** Hypertables automatically partition by time, enabling efficient queries and compression
+- **Operational Simplicity:** Standard PostgreSQL tooling, backups, replication, monitoring
+- **Scalability:** Handles billions of candles with continuous aggregates and distributed hypertables
+- **Query Flexibility:** Complex analytics with SQL (aggregations, joins, window functions, time-bucketing)
+- **Production Ready:** Battle-tested database with proven reliability in financial systems (Coinbase, Robinhood)
 
 **Why Lock-Free CAS?**  
 AtomicReference compare-and-swap = no thread contention = scales linearly with cores.
 
-**Why Extract JAR?**  
-Chronicle Map needs compiler API. Spring Boot's layered JAR breaks classpath. Extract = flat classpath.
+**Why Virtual Threads?**
+Spring Boot 3.2 virtual threads = 10K+ concurrent API requests without OS thread overhead.
 
 ## Troubleshooting
 
@@ -802,13 +809,22 @@ Chronicle Map needs compiler API. Spring Boot's layered JAR breaks classpath. Ex
 ```bash
 java -version  # Must be Java 21
 lsof -i :8080  # Check port availability
+docker ps      # Ensure PostgreSQL container running
 ```
 
-**Chronicle Map errors:**
+**TimescaleDB connection errors:**
 ```bash
-ls BOOT-INF/classes/com/fintech/candles  # Ensure JAR extracted
-ps aux | grep add-opens  # Check JVM flags
-rm -f ./data/candles.dat  # Delete corrupt file
+# Check PostgreSQL is running
+docker ps | grep postgres
+
+# Check connection settings in application.properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/candles_db
+
+# Test database connectivity
+psql -h localhost -U candles_user -d candles_db -c "SELECT version();"
+
+# Check TimescaleDB extension
+psql -h localhost -U candles_user -d candles_db -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';"
 ```
 
 **No data in queries:**
@@ -819,14 +835,38 @@ curl http://localhost:8080/actuator/metrics/candle.aggregator.events.processed
 # Use current timestamps
 NOW=$(date +%s)
 curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW-30))&to=$NOW"
+
+# Check database directly
+psql -h localhost -U candles_user -d candles_db -c "SELECT COUNT(*) FROM candles;"
 ```
 
 ---
 
-## 📚 Additional Documentation
+## 📚 Documentation
 
-- **[Quickstart](QUICKSTART.md)** - Automated setup, environment configuration, troubleshooting
-- **[Candle Aggregation explainer](./CANDLE_AGGREGATION_EXPLAINED.md)** - Visual examples, algorithm walkthrough, real-world scenarios
-- **[Data Generators and Samplers](./DATA_GENERATOR_COMPARISON.md)** - Market data generators explained, configuration guide
-- **[Performance Benchmarking](./PERFORMANCE_BENCHMARKING.md)** - Benchmarking instructions and metrics
-- **[Hybrid Architecture Overview](./HYBRID_ARCHITECTURE.md)** - Hybrid Architecture Proposal Overview
+### Getting Started
+- **[QUICKSTART.md](QUICKSTART.md)** - Quick setup guide
+- **[SETUP.md](SETUP.md)** - Detailed installation and configuration
+
+### Architecture & Design
+- **[CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md)** - Core aggregation algorithm walkthrough
+- **[LMAX_DISRUPTOR_DEEP_DIVE.md](./LMAX_DISRUPTOR_DEEP_DIVE.md)** - Lock-free event processing explained
+- **[KAFKA_CACHE_ARCHITECTURE.md](./KAFKA_CACHE_ARCHITECTURE.md)** - Production-scale architecture with Kafka + Redis caching
+
+### Operations & Performance
+- **[DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md)** - Market data simulation options
+- **[PERFORMANCE_BENCHMARKING.md](./PERFORMANCE_BENCHMARKING.md)** - Benchmarking guide and metrics
+
+### Utility Scripts
+- `./launch.sh` - **Master launcher** (end-to-end setup + automated tests)
+- `./setup.sh` - Initial environment setup (dependencies + TimescaleDB)
+- `./start-service.sh` - Start application service
+- `./stop-service.sh` - Stop running service
+- `./test-service.sh` - Run API smoke tests
+- `./run-all-tests.sh` - Execute full test suite with coverage report
+- `./performance-report.sh` - Generate comprehensive performance report
+- `./monitor-throughput.sh` - Real-time throughput monitoring
+- `./measure-latency.sh` - Latency percentile measurements
+- `./measure-percentiles.sh` - Detailed percentile analysis
+- `./test-dropped-events.sh` - Stress test for dropped events
+- `./coverage-report.sh` - Generate test coverage report

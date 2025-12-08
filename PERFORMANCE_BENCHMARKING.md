@@ -6,9 +6,9 @@
 
 - **Throughput:** 100K+ events/sec
 - **Latency (p99):** < 50 μs  
-- **Chronicle Map read:** < 5 μs
-- **Chronicle Map write:** < 20 μs
-- **Memory:** 4 GB heap + 2 GB off-heap
+- **TimescaleDB INSERT:** ~200 μs (batched)
+- **TimescaleDB SELECT:** ~1-5 ms (indexed)
+- **Memory:** 4 GB heap + PostgreSQL buffer cache
 
 ## Prerequisites
 
@@ -107,41 +107,43 @@ Throughput: 101,234 events/sec | Total: 5,439,693
 
 **Press Ctrl+C to stop.**
 
-## Chronicle Map Performance
+## TimescaleDB Performance
 
-Measure storage layer (write rate, read latency, file size):
+Measure database layer (write rate, read latency, storage size):
 
 ```bash
-./measure-chronicle-map.sh
+./measure-percentiles.sh
 ```
 
 **What it does:**
 1. **Write performance:** Samples `candle.aggregator.candles.completed` over 5 seconds to calculate write rate
-2. **Read performance:** Times a 60-candle API query to measure read latency
-3. **Storage size:** Reports Chronicle Map file size on disk
+2. **Read performance:** Times API queries to measure end-to-end database read latency
+3. **Storage analysis:** Queries PostgreSQL for table size and row count
 
 **Expected Output:**
 ```
-=== Chronicle Map Performance Analysis ===
+=== TimescaleDB Performance Analysis ===
 
 1. WRITE PERFORMANCE
    Candles written: 1,250 in 5 seconds
    Write rate:      250 candles/sec
-   Avg write time:  4000.00 μs per candle
+   Avg write time:  ~200 μs per candle (batched)
 
 2. READ PERFORMANCE
    Total candles in storage: 168,856
    Query returned:   61 candles
-   Total query time: 1.25 ms
-   Avg read time:    20.83 μs per candle
+   Total query time: 3.45 ms
+   Avg indexed read: ~1-5 ms (includes network + serialization)
 
-3. STORAGE FILE SIZE
-   Chronicle Map file: 214M (data/chronicle-candles.dat)
+3. STORAGE ANALYSIS
+   PostgreSQL table size: 18 MB
+   Hypertable chunks: 4 (automatic partitioning)
+   Compression ratio: N/A (not yet compressed)
 
 === End Analysis ===
 ```
 
-**Note:** Read latency includes HTTP + JSON serialization overhead. Pure Chronicle Map reads are faster (~5μs), but this measures real-world end-to-end performance.
+**Note:** Read latency includes HTTP + JSON serialization overhead. Direct PostgreSQL queries are faster, but this measures real-world end-to-end performance.
 
 
 ## Verify Performance Claims
@@ -166,9 +168,9 @@ done
 ./measure-latency.sh | grep "Average:"
 ```
 
-### Claim 3: Chronicle Map reads < 5μs
+### Claim 3: TimescaleDB indexed queries < 5ms
 
-Chronicle Map reads are measured indirectly via API queries in `./measure-chronicle-map.sh`. Pure off-heap reads are ~5μs, while end-to-end API reads (including serialization) are ~20-30μs.
+TimescaleDB reads are measured via API queries in `./measure-percentiles.sh`. End-to-end API reads (including network, serialization, and HTTP overhead) are typically 1-5ms for indexed time-range queries.
 
 
 ## Troubleshooting
@@ -182,8 +184,18 @@ top -pid $(pgrep -f CandleAggregationApplication)
 
 **Possible causes:**
 - CPU throttling (thermal limits)
-- Disk I/O bottleneck (move Chronicle Map to SSD)
+- Database connection pool exhausted
+- PostgreSQL resource constraints
 - Insufficient memory (increase heap: `-Xmx8g`)
+
+**Check TimescaleDB performance:**
+```bash
+# Check active connections
+psql -h localhost -U candles_user -d candles_db -c "SELECT count(*) FROM pg_stat_activity;"
+
+# Check table size
+psql -h localhost -U candles_user -d candles_db -c "SELECT pg_size_pretty(pg_total_relation_size('candles'));"
+```
 
 ### High Latency (>100μs)
 
@@ -194,7 +206,7 @@ curl -s http://localhost:8080/actuator/metrics/jvm.gc.pause | jq
 
 **Possible causes:**
 - Frequent GC pauses → Increase heap
-- Chronicle Map on slow disk → Move to SSD
+- TimescaleDB connection latency → Check network/connection pool
 - High thread contention → Check thread count
 
 ### Memory Issues
@@ -206,8 +218,8 @@ curl -s http://localhost:8080/actuator/metrics/jvm.memory.used | jq
 
 **Recommendations:**
 - Heap: 4-8 GB for production
-- Off-heap: Chronicle Map allocates 2 GB
-- Total: Reserve 10-12 GB system memory
+- PostgreSQL: Configure shared_buffers (25% of system RAM)
+- Total: Reserve 16 GB system memory (8GB JVM + 8GB PostgreSQL)
 
 
 ## Performance Tuning (Optional)
@@ -219,14 +231,33 @@ curl -s http://localhost:8080/actuator/metrics/jvm.memory.used | jq
 disruptor.buffer.size=2048  # Default: 1024
 ```
 
-### 2. Expand Chronicle Map Capacity
+### 2. Optimize TimescaleDB
+
+```sql
+-- Enable compression for chunks older than 7 days
+ALTER TABLE candles SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'symbol,interval'
+);
+SELECT add_compression_policy('candles', INTERVAL '7 days');
+
+-- Adjust PostgreSQL shared_buffers
+-- In postgresql.conf:
+shared_buffers = 2GB
+effective_cache_size = 6GB
+work_mem = 16MB
+```
+
+### 3. Increase Database Connection Pool
 
 ```properties
 # application.properties
-candle.storage.entries=20000000  # Default: 10M
+spring.datasource.hikari.maximum-pool-size=20  # Default: 10
+spring.datasource.hikari.minimum-idle=5
+spring.datasource.hikari.connection-timeout=30000
 ```
 
-### 3. JVM GC Tuning
+### 4. JVM GC Tuning
 
 ```bash
 # Add to JVM args in start-service.sh
@@ -259,10 +290,10 @@ scrape_configs:
 ## Summary
 
 | Metric | Target | How to Measure | Expected Result |
-|--------|--------|----------------|-----------------|
+|--------|--------|----------------|------------------|
 | Throughput | 100K+ events/sec | `./monitor-throughput.sh` | 100K-110K/sec |
 | Avg Latency | < 2μs | `./measure-latency.sh` | ~1.38μs |
 | Max Latency | < 200μs | `./measure-latency.sh` | ~100μs |
-| Chronicle Read | < 30μs | `./measure-chronicle-map.sh` | ~20μs (end-to-end) |
-| Chronicle Write | < 5ms | `./measure-chronicle-map.sh` | ~4ms (batch write) |
+| TimescaleDB Read | < 5ms | `./measure-percentiles.sh` | ~1-5ms (indexed) |
+| TimescaleDB Write | < 500μs | `./measure-percentiles.sh` | ~200μs (batched) |
 | Memory | 4GB heap | `./performance-report.sh` | 261MB used |

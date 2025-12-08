@@ -21,13 +21,17 @@ java -version   # Should show: openjdk version "21.0.1"
 mvn -version    # Should show: Apache Maven 3.9.6
 ```
 
+**Also Required:**
+- Docker & Docker Compose (for TimescaleDB/PostgreSQL)
+
 ## Quick Start (3 Commands)
 
 ```bash
-# 1. Build the project
-./setup.sh
+# 1. Start TimescaleDB
+docker-compose up -d
 
-# 2. Start the service
+# 2. Build and start the service
+./setup.sh
 ./start-service.sh
 
 # 3. Test it works (in another terminal)
@@ -38,7 +42,19 @@ That's it! The service will be running on http://localhost:8080
 
 ## Manual Setup (If scripts don't work)
 
-### Step 1: Clean Build
+### Step 1: Start TimescaleDB
+
+```bash
+docker-compose up -d
+```
+
+Verify it's running:
+```bash
+docker ps | grep timescaledb
+psql -h localhost -U candles_user -d candles_db -c "SELECT version();"
+```
+
+### Step 2: Clean Build
 
 ```bash
 cd /path/to/candle-aggregation-service
@@ -52,45 +68,10 @@ Expected output:
 [INFO] Total time:  2-3 seconds
 ```
 
-### Step 2: Extract JAR
-
-```bash
-# Remove old extraction if exists
-rm -rf extracted
-
-# Create directory and extract
-mkdir extracted
-cd extracted
-jar -xf ../target/candle-aggregation-service-1.0.0.jar
-cd ..
-```
-
-You should now have an `extracted/` directory with `BOOT-INF/`, `META-INF/`, and `org/` folders.
-
 ### Step 3: Start Service
 
 ```bash
-cd extracted
-
-java \
-  --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED \
-  --add-exports=java.base/sun.nio.ch=ALL-UNNAMED \
-  --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED \
-  --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED \
-  --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED \
-  --add-opens=java.base/java.lang=ALL-UNNAMED \
-  --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
-  --add-opens=java.base/java.io=ALL-UNNAMED \
-  --add-opens=java.base/java.util=ALL-UNNAMED \
-  --add-opens=java.base/java.nio=ALL-UNNAMED \
-  --add-opens=java.base/java.net=ALL-UNNAMED \
-  --add-modules=jdk.compiler \
-  -XX:+UseZGC \
-  -XX:MaxGCPauseMillis=10 \
-  -Xmx4g \
-  -XX:MaxDirectMemorySize=2g \
-  -cp "BOOT-INF/classes:BOOT-INF/lib/*" \
-  com.fintech.candles.CandleAggregationApplication
+java -jar target/candle-aggregation-service-1.0.0.jar
 ```
 
 Expected output:
@@ -105,8 +86,8 @@ Expected output:
 
 Started CandleAggregationApplication in 2.5 seconds
 Disruptor ring buffer started with 1024 slots
-Chronicle Map initialized: 10,000,000 entries, 2GB off-heap
-Market data generator started: 8 instruments @ 8,000 events/sec
+TimescaleDB connected: PostgreSQL 15 with TimescaleDB extension
+Market data generator started: 6 instruments @ 100,000 events/sec
 Service ready on http://localhost:8080
 ```
 
@@ -138,9 +119,14 @@ java -version  # Should show 21.0.1
 sdk use java 21.0.1-tem
 ```
 
-### Issue: Service won't start - "ClassNotFoundException: VanillaGlobalMutableState$$Native"
+### Issue: Service won't start - "Connection refused" to PostgreSQL
 
-**Solution:** You must extract the JAR and run from the extracted directory. Chronicle Map cannot work from a Spring Boot layered JAR.
+**Solution:** Ensure TimescaleDB container is running:
+```bash
+docker ps | grep timescaledb
+# If not running:
+docker-compose up -d
+```
 
 ### Issue: "Port 8080 already in use"
 
@@ -161,11 +147,18 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$FROM&
 ## What's Running?
 
 Once started, the service:
-- Generates mock market data for 8 instruments (BTCUSD, ETHUSD, SOLUSD, etc.)
-- Processes ~8,000 events per second
-- Aggregates into candles across 7 timeframes (1s, 5s, 15s, 1m, 5m, 15m, 1h)
-- Stores everything in off-heap Chronicle Map (survives restarts)
+- Generates mock market data for 6 instruments (BTCUSD, ETHUSD, SOLUSD, EURUSD, GBPUSD, XAUUSD)
+- Processes ~100,000 events per second
+- Aggregates into candles across 5 timeframes (1s, 5s, 1m, 15m, 1h)
+- Stores everything in TimescaleDB (PostgreSQL with time-series optimizations)
 - Exposes REST API on http://localhost:8080
+
+**TimescaleDB Benefits:**
+- ACID compliance - no data loss on crash
+- Automatic time-based partitioning (hypertables)
+- Compression for historical data (10-20x space savings)
+- SQL query power for complex analytics
+- Standard PostgreSQL tooling and ecosystem
 
 ## Next Steps
 
@@ -235,15 +228,12 @@ lsof -ti:8080 | xargs kill -9
 # Make code changes
 vim src/main/java/com/fintech/candles/...
 
-# Rebuild
+# Rebuild and restart
 mvn clean package -DskipTests
+./start-service.sh
 
-# Re-extract
-rm -rf extracted && mkdir extracted && cd extracted
-jar -xf ../target/candle-aggregation-service-1.0.0.jar
-cd ..
-
-# Restart
+# Or run tests before restart
+mvn clean test
 ./start-service.sh
 ```
 

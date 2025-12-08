@@ -637,7 +637,7 @@ currentWindow = 10:37:24.000
 10:37:25.000 > 10:37:24.000 → NEW WINDOW!
 
 Actions:
-  1. Persist old candle: save { 10:37:24.000, 50000, 50000, 50000, 50000 } to Chronicle Map
+  1. Persist old candle: save { 10:37:24.000, 50000, 50000, 50000, 50000 } to TimescaleDB
   2. Create new candle: { 10:37:25.000, 50100, 50100, 50100, 50100 }
   3. Update activeCandles["BTC-USD-S1"] = new candle
 
@@ -647,7 +647,7 @@ currentWindow = 10:37:20.000
 10:37:25.000 > 10:37:20.000 → NEW WINDOW!
 
 Actions:
-  1. Persist old candle: save { 10:37:20.000, 49950, 50050, 49900, 50000 } to Chronicle Map
+  1. Persist old candle: save { 10:37:20.000, 49950, 50050, 49900, 50000 } to TimescaleDB
   2. Create new candle: { 10:37:25.000, 50100, 50100, 50100, 50100 }
   3. Update activeCandles["BTC-USD-S5"] = new candle
 
@@ -693,7 +693,7 @@ activeCandles = {
     "BTC-USD-H1":  { windowStart: 10:00:00.000, open: 48000, high: 51000, low: 47500, close: 50100 }  ← UPDATED
 }
 
-Chronicle Map now has:
+TimescaleDB now has:
   - "BTC-USD-S1-1733529444000"  (old S1 candle at 10:37:24)
   - "BTC-USD-S5-1733529440000"  (old S5 candle at 10:37:20)
   ... (thousands of other completed candles)
@@ -780,7 +780,7 @@ currentCandle.windowStart = 10:37:00.000
 CASE 2: New window ✓
 eventWindow (10:38:00.000) > currentCandle.windowStart (10:37:00.000)
 → isNewWindow() returns true
-→ Persist old candle to Chronicle Map
+→ Persist old candle to TimescaleDB
 → Create new candle:
   activeCandles["BTC-USD-M1"] = {
       windowStart: 10:38:00.000,
@@ -860,9 +860,9 @@ Check:
   10,000 ms <= 30,000 ms? ✓ YES
   
 Action: ACCEPT
-  → Find candle for window 10:00:00.000 in Chronicle Map
+  → Find candle for window 10:00:00.000 in TimescaleDB
   → Update its OHLC values
-  → Re-save to Chronicle Map
+  → Re-save to TimescaleDB
 
 // Scenario 2: Late event BEYOND tolerance (DROPPED)
 

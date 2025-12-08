@@ -1,0 +1,24 @@
+# Test Configuration - Testcontainers will override datasource
+
+spring:
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: create-drop  # Auto-create schema for tests
+    show-sql: false
+    
+candle:
+  storage:
+    timescaledb:
+      enabled: true
+      batch-size: 50
+      async-write: false  # Synchronous for tests
+
+  simulation:
+    enabled: false
+    production-scale: false  # Disable ProductionScaleDataGenerator in tests
+
+logging:
+  level:
+    root: WARN
+    com.fintech.candles: INFO

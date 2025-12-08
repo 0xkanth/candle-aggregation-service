@@ -36,9 +36,6 @@ echo ""
 echo "Rebuilding with stress test configuration..."
 mvn clean package -DskipTests -q
 
-# Remove old extracted files
-rm -rf extracted
-
 # Start service with stress profile
 echo ""
 echo "Starting service with stress configuration..."

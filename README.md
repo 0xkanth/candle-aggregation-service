@@ -22,7 +22,7 @@ High-performance candle aggregation service processing 100K+ events/sec with <50
 
 > For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)
 
-### Option 1: Docker (Recommended for Production & Reviewers)
+### Option 1: Docker
 
 ```bash
 # Build and start containers (detached)

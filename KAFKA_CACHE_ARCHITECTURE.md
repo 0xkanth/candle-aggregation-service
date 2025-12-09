@@ -1,12 +1,13 @@
-# Kafka + Disruptor + TimescaleDB + Cache Architecture
+# Kafka + Cache Architecture for Production Scale
 
 ## Overview
 
 Production streaming architecture combining:
-- **Kafka**: Event streaming backbone
-- **LMAX Disruptor**: In-memory processing pipeline
-- **2-Tier Cache**: L1 (Caffeine) + L2 (Redis) 
+- **Kafka**: Durable event streaming and horizontal scaling
+- **2-Tier Cache**: L1 (Caffeine) + L2 (Redis) for read optimization
 - **TimescaleDB**: Persistent time-series storage
+
+**Note:** LMAX Disruptor is used in the **current single-instance implementation**. In the Kafka-based architecture, Kafka's consumer batching replaces the Disruptor for horizontal scalability.
 
 ---
 
@@ -26,24 +27,22 @@ graph TB
     end
     
     subgraph "Service Instance 1"
-        KC1[Kafka Consumer]
-        DIS1[Disruptor Ring<br/>8192 slots]
-        AGG1[CandleAggregator]
+        KC1[Kafka Consumer<br/>Batch Processing]
+        AGG1[CandleAggregator<br/>Direct Processing]
     end
     
     subgraph "Service Instance 2"
-        KC2[Kafka Consumer]
-        DIS2[Disruptor Ring<br/>8192 slots]
-        AGG2[CandleAggregator]
+        KC2[Kafka Consumer<br/>Batch Processing]
+        AGG2[CandleAggregator<br/>Direct Processing]
     end
     
     subgraph "Caching Layer"
-        L1[L1: Caffeine<br/>On-Heap Cache]
-        L2[L2: Redis Cluster<br/>Off-Heap Cache]
+        L1[L1: Caffeine<br/>On-Heap Cache<br/>Hot Data]
+        L2[L2: Redis Cluster<br/>Off-Heap Cache<br/>Recent Historical]
     end
     
     subgraph "Storage Layer"
-        TS[TimescaleDB<br/>Hypertable]
+        TS[TimescaleDB<br/>Hypertable<br/>All Historical]
     end
     
     subgraph "API Layer"
@@ -58,11 +57,8 @@ graph TB
     KT1 --> KC1
     KT1 --> KC2
     
-    KC1 --> DIS1
-    KC2 --> DIS2
-    
-    DIS1 --> AGG1
-    DIS2 --> AGG2
+    KC1 --> AGG1
+    KC2 --> AGG2
     
     AGG1 --> L1
     AGG2 --> L1
@@ -79,12 +75,14 @@ graph TB
     
     KT2 --> WS
     
-    style DIS1 fill:#ff6b6b,color:#fff
-    style DIS2 fill:#ff6b6b,color:#fff
+    style KC1 fill:#ff6b6b,color:#fff
+    style KC2 fill:#ff6b6b,color:#fff
     style L1 fill:#4ecdc4,color:#fff
     style L2 fill:#95e1d3,color:#000
     style TS fill:#f38181,color:#fff
 ```
+
+**Key Change:** Kafka Consumer directly invokes CandleAggregator - no Disruptor in between!
 
 ---
 
@@ -114,6 +112,9 @@ graph TB
 ### 1. Kafka: Event Streaming Backbone
 
 **Purpose:** Decouples producers (exchanges) from consumers (services)
+### 1. Kafka: Event Streaming and Horizontal Scaling
+
+**Purpose:** Durable event streaming with horizontal scalability
 
 **Configuration:**
 ```yaml
@@ -137,43 +138,147 @@ kafka:
 ```
 
 **Why Kafka?**
-- **Replay:** Can restart service and replay missed events
-- **Scalability:** 16 partitions = 16 parallel consumers
-- **Durability:** 3 replicas, no data loss
+- **Durability:** Events persisted to disk, can replay on failure
+- **Horizontal Scaling:** 16 partitions = 16 parallel consumers
 - **Decoupling:** Multiple services can consume same events
+- **Batching:** Consumer gets batches of events for efficiency
 
----
+**Kafka Consumer → Aggregator (Direct)**
+```java
+@KafkaListener(topics = "market-events", concurrency = "4")
+public void consumeEvents(List<BidAskEvent> events) {
+    // Process batch directly - no Disruptor needed!
+    for (BidAskEvent event : events) {
+        candleAggregator.aggregate(event);
+    }
+}
+```
 
-### 2. LMAX Disruptor: In-Memory Processing
-
-**Purpose:** Low-latency processing within JVM
-
-**Why Keep Disruptor?**
-- Pre-allocated ring buffer (zero GC pressure)
-- Cache-friendly sequential access
-- Lock-free CAS operations
-- Event batching for efficiency
-
----
-
+**Why No Disruptor Here?**
+- **Kafka already provides batching** (up to 500 events per poll)
+- **Kafka consumer is thread-safe** (one partition per thread)
 ### 3. Two-Tier Caching Strategy
+
+**Why Two Tiers?**
+- **L1 (Caffeine):** Ultra-fast on-heap access for current/hot data
+- **L2 (Redis):** Shared off-heap cache across all service instances
+- **Trade-off:** Memory speed vs shared state
 
 #### L1 Cache: Caffeine (On-Heap)
 
-**Purpose:** Fast access to active candles
+**Purpose:** Fast access to actively aggregating candles
+
+**Benefits:**
+- **Speed:** On-heap lookup (CPU cache resident)
+- **Zero serialization:** Java objects stay in memory
+- **Thread-safe:** Built-in concurrency controls
+- **Auto-eviction:** Size-based and time-based expiration
 
 **Configuration:**
-- Max size: 10K candles
-- TTL: 5 minutes
+- Max size: 10K candles (actively aggregating windows)
+- TTL: 5 minutes (recent completed candles)
 - Cache key format: `SYMBOL-INTERVAL-TIMESTAMP`
 
+**What Goes in L1:**
+- Current aggregating candles (last 5 minutes)
+- Recently completed candles (frequently queried)
+- Hot symbols (high query volume)
+
 **Access Pattern:**
-1. Check L1 (Caffeine)
+1. Check L1 (Caffeine) - if hit, return immediately
 2. On miss, check L2 (Redis) and promote to L1
 3. On miss, query TimescaleDB and populate both caches
 
 ---
 
+#### L2 Cache: Redis (Off-Heap, Shared)
+
+**Purpose:** Shared cache across multiple service instances
+
+**Benefits:**
+- **Shared state:** All instances see same cached data
+- **Larger capacity:** Not limited by JVM heap
+- **Cluster mode:** Horizontal scaling of cache itself
+- **Persistence options:** Can survive restarts
+
+### 5. TimescaleDB: Persistent Storage
+
+**Purpose:** Source of truth for all historical data
+
+**Features:**
+- Hypertable partitioning (automatic time-based chunks)
+- Compression for old data
+- ACID guarantees
+- Indexed range queries
+
+**Write Strategy (with Caching):**
+1. **Async write** to TimescaleDB (non-blocking)
+2. **Sync update** to L1 (Caffeine) - immediate availability
+3. **Sync update** to L2 (Redis) - shared across instances
+4. **Publish** completion event to Kafka (for WebSocket subscribers)
+
+**Why This Order?**
+- Caches updated immediately (fast API response)
+- Database write happens async (doesn't block aggregation)
+- Kafka event triggers real-time notifications
+
+**Benefits of Async DB Write:**
+- Aggregation not blocked by disk I/O
+- Can batch multiple candles per transaction
+- Smoother throughput under load
+
+---
+
+## Benefits Summary
+
+### Kafka Benefits
+- **Durability:** Events survive crashes, can replay
+- **Horizontal Scaling:** Add instances without coordination
+- **Decoupling:** Multiple consumers (real-time, analytics, audit)
+- **Batching:** Efficient processing of event groups
+- **Ordered Processing:** Per-partition ordering guarantee
+
+### Two-Tier Cache Benefits
+- **Read Performance:** Majority of queries served from memory
+- **Reduced DB Load:** Database handles only cache misses
+- **Shared State:** Redis ensures consistency across instances
+- **Fast Hot Path:** Caffeine provides on-heap speed
+- **Scalability:** Redis cluster can grow independently
+
+### Overall System Benefits
+- **Fault Tolerance:** Kafka persistence + TimescaleDB durability
+- **Linear Scaling:** Add partitions + instances for more throughput
+- **Low Read Latency:** Multi-tier cache hierarchy
+- **Simple Deployment:** No Disruptor complexity in Kafka mode
+- **Observability:** Metrics at each layer (Kafka lag, cache hits, DB queries)
+
+---
+
+### 4. Why Two Caches Instead of One?
+
+**Option 1: Only Caffeine (L1)**
+- ❌ Each service instance has separate cache
+- ❌ Cache duplication across instances (wasted memory)
+- ❌ Lost on restart (not persistent)
+- ✅ Very fast access
+
+**Option 2: Only Redis (L2)**
+- ❌ Network hop for every query (slower)
+- ❌ Serialization/deserialization overhead
+- ✅ Shared across instances
+- ✅ Larger capacity
+
+**Option 3: Both (L1 + L2) - RECOMMENDED**
+- ✅ Best of both: Fast on-heap + shared distributed
+- ✅ Hot data in L1 (on-heap speed)
+- ✅ Warm data in L2 (shared, larger)
+- ✅ Cache promotion: L2 hits populate L1
+- ✅ Reduced Redis load: L1 absorbs most queries
+
+**Real-World Pattern:**
+- Netflix: EVCache (multi-tier: in-process + distributed)
+- Twitter: Cache hierarchies (on-heap + Manhattan)
+- Facebook: Multi-level caches (local + Memcache clusters)
 #### L2 Cache: Redis (Off-Heap, Network)
 
 **Purpose:** Shared cache across multiple service instances

@@ -210,15 +210,36 @@ echo -e "   • Application:     ${GREEN}RUNNING${NC} (PID: $(cat logs/applicati
 echo -e "   • TimescaleDB:     ${GREEN}RUNNING${NC}"
 echo -e "   • Generator:       ${GREEN}ACTIVE${NC} (ProductionScaleDataGenerator @ 100K events/sec)"
 echo -e "   • API:             ${GREEN}READY${NC} (http://localhost:8080)"
+echo -e "   • Swagger UI:      ${GREEN}READY${NC} (http://localhost:8080/swagger-ui/index.html)"
 echo ""
+
+# Open Swagger UI in browser
+echo -e "${YELLOW}Opening Swagger UI in browser...${NC}"
+if command -v open &> /dev/null; then
+    # macOS
+    open "http://localhost:8080/swagger-ui/index.html" &>/dev/null &
+elif command -v xdg-open &> /dev/null; then
+    # Linux
+    xdg-open "http://localhost:8080/swagger-ui/index.html" &>/dev/null &
+elif command -v start &> /dev/null; then
+    # Windows (Git Bash)
+    start "http://localhost:8080/swagger-ui/index.html" &>/dev/null &
+else
+    echo -e "${YELLOW}   ⚠ Could not auto-open browser. Please visit manually:${NC}"
+    echo -e "   ${BLUE}http://localhost:8080/swagger-ui/index.html${NC}"
+fi
+echo ""
+
 echo -e "${YELLOW}Quick Commands:${NC}"
+echo -e "   • Swagger UI:      ${BLUE}http://localhost:8080/swagger-ui/index.html${NC}"
+echo -e "   • OpenAPI Docs:    ${BLUE}http://localhost:8080/v3/api-docs${NC}"
 echo -e "   • View logs:       ${BLUE}tail -f logs/application.log${NC}"
 echo -e "   • Monitor metrics: ${BLUE}./monitor-throughput.sh${NC}"
 echo -e "   • Performance:     ${BLUE}./performance-report.sh${NC}"
 echo -e "   • Test suite:      ${BLUE}./test-service.sh${NC}"
 echo -e "   • Stop service:    ${BLUE}./stop-service.sh${NC}"
 echo ""
-echo -e "${YELLOW}Sample API Queries:${NC}"
+echo -e "${YELLOW}Sample API Queries (or use Swagger UI above):${NC}"
 echo ""
 echo -e "   # Get BTCUSD last 30 seconds (1s candles)"
 echo -e "   ${BLUE}NOW=\$(date +%s); curl \"http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=\$((NOW-30))&to=\$NOW\" | jq${NC}"

@@ -18,44 +18,48 @@ High-performance real-time OHLCV candle aggregation service processing 100K+ eve
 
 > For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)
 
-### Option 1: Master Launch Script (Recommended)
+### Launch Options
 
-**Complete end-to-end automated setup:**
+**All scripts ensure TimescaleDB is running before starting the service.**
+
+**1. Full Production Stack** - Complete verification with all tests
 ```bash
-./launch.sh
+./docker-launch.sh  # Build + Docker + Verification + Swagger
 ```
 
-This script handles everything:
-- Stops existing services
-- Builds the application (Maven clean package)
-- Starts TimescaleDB (Docker)
-- Launches the service with health checks
-- Runs automated verification tests
-- Shows performance metrics
-
-### Option 2: Docker
-
+**2. Quick Development** - Faster iteration (skips rebuild if JAR exists)
 ```bash
-# Build and start containers
-docker-compose up -d --build
-
-# Test API
-NOW=$(date +%s)
-curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW-30))&to=$NOW" | jq
+./local-launch.sh   # Start DB + Service + Swagger
 ```
 
-### Option 3: Manual Local Development
+**3. Instant Restart** - No rebuild, just restart
+```bash
+./quick-restart.sh  # Uses existing JAR
+```
+
+**All launchers guarantee:**
+- ✓ TimescaleDB container running
+- ✓ Database health verified (`pg_isready`)
+- ✓ Application startup confirmed
+- ✓ Auto-open Swagger UI
+
+### Database Architecture
+
+**Production/Development:** TimescaleDB (PostgreSQL) in Docker  
+**Tests:** TestContainers with PostgreSQL (isolated per test)
+
+### Manual Control
 
 ```bash
-# Initial setup (installs dependencies, starts TimescaleDB)
-./setup.sh
-
-# Start service
-./start-service.sh
-
-# Or manual build:
+# Build
 mvn clean package -DskipTests
-java -Xmx4g -jar target/candle-aggregation-service-1.0.0.jar
+
+# Start/Stop
+./start-service.sh  # Also checks TimescaleDB
+./stop-service.sh
+
+# Docker database only
+docker-compose up -d
 ```
 
 ## Architecture
@@ -66,7 +70,8 @@ java -Xmx4g -jar target/candle-aggregation-service-1.0.0.jar
 > [CANDLE_AGGREGATION_EXPLAINED.md](./CANDLE_AGGREGATION_EXPLAINED.md) - Core aggregation algorithm  
 > [LMAX_DISRUPTOR_DEEP_DIVE.md](./LMAX_DISRUPTOR_DEEP_DIVE.md) - Lock-free event processing  
 > [KAFKA_CACHE_ARCHITECTURE.md](./KAFKA_CACHE_ARCHITECTURE.md) - **Production-scale architecture** (Kafka + Caching)  
-> [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md) - Market data simulators
+> [DATA_GENERATOR_COMPARISON.md](./DATA_GENERATOR_COMPARISON.md) - Market data simulators  
+> [PRODUCTION_SAFETY.md](./PRODUCTION_SAFETY.md) - **Production safety & resilience** (Validations, Circuit Breakers, Error Handling)
 
 ### System Design
 
@@ -679,6 +684,86 @@ candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,XAUUSD
 - **Scalability:** Handles billions of candles with continuous aggregates
 - **SQL Query Power:** Complex analytics with standard SQL
 - **Operational Maturity:** Battle-tested PostgreSQL foundation with proven reliability
+
+## API Documentation
+
+**Swagger UI:** http://localhost:8080/swagger-ui/index.html (interactive API testing)  
+**OpenAPI Spec:** http://localhost:8080/v3/api-docs
+
+The `./launch.sh` script automatically opens Swagger UI in your browser.
+
+### REST API Endpoints
+
+#### GET /api/v1/history
+
+Retrieve historical OHLC candle data.
+
+**Parameters:**
+- `symbol` (required): Trading symbol (e.g., BTCUSD, ETHUSD)
+- `interval` (required): Candle interval (1s, 5s, 1m, 15m, 1h)
+- `from` (required): Start time (Unix timestamp in seconds)
+- `to` (required): End time (Unix timestamp in seconds)
+
+**Example Request:**
+```bash
+NOW=$(date +%s)
+curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1m&from=$((NOW-300))&to=$NOW" | jq
+```
+
+**Example Response:**
+```json
+{
+  "s": "ok",
+  "t": [1733529420, 1733529480, 1733529540],
+  "o": [50000.0, 50100.0, 50050.0],
+  "h": [50150.0, 50200.0, 50150.0],
+  "l": [49950.0, 50000.0, 49980.0],
+  "c": [50100.0, 50050.0, 50120.0],
+  "v": [1250, 980, 1100]
+}
+```
+
+**Response Format:**
+- `s`: Status ("ok" or "error")
+- `t`: Array of timestamps (Unix seconds)
+- `o`: Array of open prices
+- `h`: Array of high prices
+- `l`: Array of low prices
+- `c`: Array of close prices
+- `v`: Array of volumes (number of events)
+
+#### GET /api/v1/symbols
+
+List available trading symbols.
+
+**Example:**
+```bash
+curl http://localhost:8080/api/v1/symbols | jq
+```
+
+#### GET /actuator/health
+
+Service health check endpoint.
+
+**Example:**
+```bash
+curl http://localhost:8080/actuator/health | jq
+```
+
+#### GET /actuator/metrics
+
+Prometheus-compatible metrics endpoint.
+
+**Available Metrics:**
+- `candle.aggregator.events.processed` - Total events processed
+- `candle.aggregator.candles.completed` - Total candles created
+- `candle.aggregator.late.events.dropped` - Late events dropped
+- `candle.aggregator.event.processing.time` - Event processing latency
+
+**Example:**
+```bash
+curl http://localhost:8080/actuator/metrics/candle.aggregator.events.processed | jq
+```
 
 ## Testing
 

@@ -48,7 +48,58 @@ server:
     enabled: true
     mime-types: application/json
     min-response-size: 1024
+  # Connection limits and timeouts (panic prevention)
+  tomcat:
+    threads:
+      max: 200                    # Maximum threads
+      min-spare: 10               # Minimum spare threads
+    max-connections: 10000        # Maximum concurrent connections
+    accept-count: 100             # Queue size when all threads busy
+    connection-timeout: 20s       # Connection timeout
+  # Request size limits (prevent memory exhaustion)
+  max-http-header-size: 16KB
+  max-http-request-header-size: 16KB
+  # Graceful shutdown
   shutdown: graceful
+
+# Resilience4j Circuit Breaker & Rate Limiter
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+        slowCallRateThreshold: 50
+        slowCallDurationThreshold: 2s
+    instances:
+      database:
+        baseConfig: default
+      aggregation:
+        baseConfig: default
+        failureRateThreshold: 70
+        slowCallDurationThreshold: 100ms
+  
+  ratelimiter:
+    configs:
+      default:
+        registerHealthIndicator: true
+        limitForPeriod: 100
+        limitRefreshPeriod: 1s
+        timeoutDuration: 100ms
+    instances:
+      history-api:
+        baseConfig: default
+      symbols-api:
+        limitForPeriod: 50
+        timeoutDuration: 50ms
+      global-api:
+        limitForPeriod: 500
+        timeoutDuration: 10ms
 
 management:
   endpoints:
@@ -77,6 +128,19 @@ logging:
     com.fintech.candles: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# OpenAPI/Swagger Configuration
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+    try-it-out-enabled: true
+    filter: true
+    display-request-duration: true
+  show-actuator: false
 
 candle:
   storage:

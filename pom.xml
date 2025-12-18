@@ -85,6 +85,13 @@
             <version>2.1.12</version>
         </dependency>
 
+        <!-- AWS CloudWatch Metrics (for production AWS deployments) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-cloudwatch2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Resilience -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>

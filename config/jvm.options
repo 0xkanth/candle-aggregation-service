@@ -7,20 +7,6 @@
 -XX:MaxGCPauseMillis=10
 -XX:ZCollectionInterval=120
 
-# Direct Memory for Chronicle Map
--XX:MaxDirectMemorySize=2g
-
-# Chronicle Map Required Flags (Java 9+)
---add-opens=java.base/java.lang=ALL-UNNAMED
---add-opens=java.base/java.io=ALL-UNNAMED
---add-opens=java.base/java.nio=ALL-UNNAMED
---add-opens=java.base/java.lang.reflect=ALL-UNNAMED
---add-opens=java.base/java.util=ALL-UNNAMED
---add-opens=java.base/sun.nio.ch=ALL-UNNAMED
---add-exports=java.base/jdk.internal.ref=ALL-UNNAMED
---add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED
---add-exports=java.base/sun.nio.ch=ALL-UNNAMED
-
 # Performance Optimizations
 -XX:+AlwaysPreTouch
 -XX:+UseNUMA
@@ -33,6 +19,11 @@
 -XX:+UseCompressedClassPointers
 -XX:ReservedCodeCacheSize=512m
 
+# Metaspace Settings (Class Metadata)
+-XX:MetaspaceSize=128m
+-XX:MaxMetaspaceSize=256m
+-XX:CompressedClassSpaceSize=128m
+
 # Virtual Threads (Project Loom)
 -Djdk.virtualThreadScheduler.parallelism=16
 -Djdk.virtualThreadScheduler.maxPoolSize=256
@@ -43,7 +34,20 @@
 # Encoding
 -Dfile.encoding=UTF-8
 
-# Monitoring (optional - for profiling)
-# -XX:+FlightRecorder
-# -XX:StartFlightRecording=duration=60s,filename=recording.jfr
+# Memory Uncommit (return memory to OS during idle periods)
+-XX:+ZUncommit
+-XX:ZUncommitDelay=300
+
+# Native Memory Tracking
+-XX:NativeMemoryTracking=summary
+
+# Java Flight Recorder (Production Monitoring)
+-XX:StartFlightRecording=dumponexit=true,filename=logs/app.jfr
+-XX:FlightRecorderOptions=stackdepth=128
+
+# GC Logging
+-Xlog:gc*=info:file=logs/gc.log:time,uptime,level,tags:filecount=5,filesize=10M
+
+# Note: For Docker, paths will be /app/logs/ instead of logs/
+# The application will handle path resolution automatically
 

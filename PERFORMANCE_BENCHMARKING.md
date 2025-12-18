@@ -16,7 +16,7 @@ Ensure the service is running:
 
 ```bash
 # Start service (if not already running)
-./start-service.sh
+./scripts/deployment/start-service.sh
 
 # Verify health
 curl -s http://localhost:8080/actuator/health | jq
@@ -28,7 +28,7 @@ curl -s http://localhost:8080/actuator/health | jq
 Run the comprehensive performance report script:
 
 ```bash
-./performance-report.sh
+./scripts/performance/performance-report.sh
 ```
 
 **What it does:** Measures throughput (5-second sample), latency (average & max), total candles completed, late events dropped, and memory usage.
@@ -61,7 +61,7 @@ Run the comprehensive performance report script:
 Calculate average latency from metrics:
 
 ```bash
-./measure-latency.sh
+./scripts/performance/measure-latency.sh
 ```
 
 **What it does:** Extracts count, sum, and max from Prometheus metrics and calculates average latency.
@@ -91,7 +91,7 @@ Statistics:
 Watch events/sec update live:
 
 ```bash
-./monitor-throughput.sh
+./scripts/monitoring/monitor-throughput.sh
 ```
 
 **What it does:** Samples `candle.aggregator.events.processed` metric every second and calculates delta.
@@ -112,7 +112,7 @@ Throughput: 101,234 events/sec | Total: 5,439,693
 Measure database layer (write rate, read latency, storage size):
 
 ```bash
-./measure-percentiles.sh
+./scripts/performance/measure-percentiles.sh
 ```
 
 **What it does:**
@@ -165,12 +165,12 @@ done
 
 ```bash
 # Calculate average latency
-./measure-latency.sh | grep "Average:"
+./scripts/performance/measure-latency.sh | grep "Average:"
 ```
 
 ### Claim 3: TimescaleDB indexed queries < 5ms
 
-TimescaleDB reads are measured via API queries in `./measure-percentiles.sh`. End-to-end API reads (including network, serialization, and HTTP overhead) are typically 1-5ms for indexed time-range queries.
+TimescaleDB reads are measured via API queries in `./scripts/performance/measure-percentiles.sh`. End-to-end API reads (including network, serialization, and HTTP overhead) are typically 1-5ms for indexed time-range queries.
 
 
 ## Troubleshooting
@@ -291,9 +291,9 @@ scrape_configs:
 
 | Metric | Target | How to Measure | Expected Result |
 |--------|--------|----------------|------------------|
-| Throughput | 100K+ events/sec | `./monitor-throughput.sh` | 100K-110K/sec |
-| Avg Latency | < 2μs | `./measure-latency.sh` | ~1.38μs |
-| Max Latency | < 200μs | `./measure-latency.sh` | ~100μs |
-| TimescaleDB Read | < 5ms | `./measure-percentiles.sh` | ~1-5ms (indexed) |
-| TimescaleDB Write | < 500μs | `./measure-percentiles.sh` | ~200μs (batched) |
-| Memory | 4GB heap | `./performance-report.sh` | 261MB used |
+| Throughput | 100K+ events/sec | `./scripts/monitoring/monitor-throughput.sh` | 100K-110K/sec |
+| Avg Latency | < 2μs | `./scripts/performance/measure-latency.sh` | ~1.38μs |
+| Max Latency | < 200μs | `./scripts/performance/measure-latency.sh` | ~100μs |
+| TimescaleDB Read | < 5ms | `./scripts/performance/measure-percentiles.sh` | ~1-5ms (indexed) |
+| TimescaleDB Write | < 500μs | `./scripts/performance/measure-percentiles.sh` | ~200μs (batched) |
+| Memory | 4GB heap | `./scripts/performance/performance-report.sh` | 261MB used |

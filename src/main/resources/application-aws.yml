@@ -1,0 +1,53 @@
+# AWS Production Configuration
+# Activate with: --spring.profiles.active=aws
+
+spring:
+  application:
+    name: candle-aggregation-service
+  
+  # AWS RDS PostgreSQL (TimescaleDB on RDS)
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:candledb}
+    username: ${DB_USERNAME:candle_user}
+    password: ${DB_PASSWORD}  # From AWS Secrets Manager or Parameter Store
+    hikari:
+      maximum-pool-size: 50   # Higher for production
+      minimum-idle: 10
+      connection-timeout: 10000
+      idle-timeout: 300000
+      max-lifetime: 900000
+      leak-detection-threshold: 60000  # Detect connection leaks
+
+management:
+  metrics:
+    export:
+      # Disable Prometheus in AWS (use CloudWatch instead)
+      prometheus:
+        enabled: false
+      
+      # AWS CloudWatch Metrics
+      cloudwatch2:
+        enabled: true
+        namespace: CandleAggregation/Production
+        step: 1m  # Publish every 1 minute (cost optimization)
+        batch-size: 20
+        # AWS credentials from IAM role (ECS/EKS) or environment variables
+        # No need to configure access-key/secret-key when using IAM roles
+
+# CloudWatch-specific percentiles (configured in MetricsConfiguration.java)
+# - Only p50 and p99 (cost optimization)
+# - No histogram buckets (CloudWatch doesn't support)
+# - 5-minute aggregation windows
+
+logging:
+  level:
+    root: INFO
+    com.fintech.candles: INFO  # Less verbose in production
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{trace-id}] [%thread] %-5level %logger{36} - %msg%n"
+
+candle:
+  simulation:
+    # Disable simulation in production (real market data from Kafka/WebSocket)
+    production-scale: false
+    simple-mode: false

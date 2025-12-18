@@ -28,3 +28,7 @@ logs/
 extracted/
 data/
 .idea
+
+heap-export.csv
+jfr-recordings/
+docs/

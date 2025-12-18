@@ -15,7 +15,9 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")\" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_DIR"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 REPORT_DIR="${PROJECT_DIR}/target/test-reports"
 COVERAGE_DIR="${PROJECT_DIR}/target/site/jacoco"

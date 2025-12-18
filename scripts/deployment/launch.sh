@@ -16,7 +16,8 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Project directory
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR"
 
 echo -e "${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -102,7 +103,7 @@ for i in {1..30}; do
     
     if [ $i -eq 30 ]; then
         echo -e "${RED}   ✗ Application failed to start${NC}"
-        echo -e "${YELLOW}   Check logs: tail -f logs/application.log${NC}"
+        echo -e "${YELLOW}   Check logs: tail -f $PROJECT_DIR/scripts/deployment/logs/application.log${NC}"
         exit 1
     fi
     echo -n "."
@@ -206,7 +207,7 @@ echo -e "${BOLD}║                     STARTUP COMPLETE! ✓                   
 echo -e "${BOLD}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${GREEN}Service Status:${NC}"
-echo -e "   • Application:     ${GREEN}RUNNING${NC} (PID: $(cat logs/application.pid 2>/dev/null || echo 'N/A'))"
+echo -e "   • Application:     ${GREEN}RUNNING${NC} (PID: $(cat $PROJECT_DIR/scripts/deployment/logs/application.pid 2>/dev/null || echo 'N/A'))"
 echo -e "   • TimescaleDB:     ${GREEN}RUNNING${NC}"
 echo -e "   • Generator:       ${GREEN}ACTIVE${NC} (ProductionScaleDataGenerator @ 100K events/sec)"
 echo -e "   • API:             ${GREEN}READY${NC} (http://localhost:8080)"
@@ -233,7 +234,7 @@ echo ""
 echo -e "${YELLOW}Quick Commands:${NC}"
 echo -e "   • Swagger UI:      ${BLUE}http://localhost:8080/swagger-ui/index.html${NC}"
 echo -e "   • OpenAPI Docs:    ${BLUE}http://localhost:8080/v3/api-docs${NC}"
-echo -e "   • View logs:       ${BLUE}tail -f logs/application.log${NC}"
+echo -e "   • View logs:       ${BLUE}tail -f $PROJECT_DIR/scripts/deployment/logs/application.log${NC}"
 echo -e "   • Monitor metrics: ${BLUE}./monitor-throughput.sh${NC}"
 echo -e "   • Performance:     ${BLUE}./performance-report.sh${NC}"
 echo -e "   • Test suite:      ${BLUE}./test-service.sh${NC}"

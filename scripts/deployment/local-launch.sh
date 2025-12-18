@@ -15,7 +15,8 @@ RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR"
 
 echo -e "${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -117,5 +118,5 @@ echo -e "${BOLD}${GREEN}╚═════════════════�
 echo ""
 echo -e "  API:     http://localhost:8080/api/v1/history"
 echo -e "  Swagger: http://localhost:8080/swagger-ui/index.html"
-echo -e "  Logs:    tail -f logs/application.log"
+echo -e "  Logs:    tail -f $PROJECT_DIR/scripts/deployment/logs/application.log"
 echo ""

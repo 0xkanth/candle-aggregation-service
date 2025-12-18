@@ -24,17 +24,17 @@ High-performance real-time OHLCV candle aggregation service processing 100K+ eve
 
 **1. Full Production Stack** - Complete verification with all tests
 ```bash
-./docker-launch.sh  # Build + Docker + Verification + Swagger
+./scripts/deployment/docker-launch.sh  # Build + Docker + Verification + Swagger
 ```
 
 **2. Quick Development** - Faster iteration (skips rebuild if JAR exists)
 ```bash
-./local-launch.sh   # Start DB + Service + Swagger
+./scripts/deployment/local-launch.sh   # Start DB + Service + Swagger
 ```
 
 **3. Instant Restart** - No rebuild, just restart
 ```bash
-./quick-restart.sh  # Uses existing JAR
+./scripts/deployment/quick-restart.sh  # Uses existing JAR
 ```
 
 **All launchers guarantee:**
@@ -55,8 +55,8 @@ High-performance real-time OHLCV candle aggregation service processing 100K+ eve
 mvn clean package -DskipTests
 
 # Start/Stop
-./start-service.sh  # Also checks TimescaleDB
-./stop-service.sh
+./scripts/deployment/start-service.sh  # Also checks TimescaleDB
+./scripts/deployment/stop-service.sh
 
 # Docker database only
 docker-compose up -d
@@ -690,7 +690,7 @@ candle.simulation.symbols=BTCUSD,ETHUSD,SOLUSD,EURUSD,GBPUSD,XAUUSD
 **Swagger UI:** http://localhost:8080/swagger-ui/index.html (interactive API testing)  
 **OpenAPI Spec:** http://localhost:8080/v3/api-docs
 
-The `./launch.sh` script automatically opens Swagger UI in your browser.
+The `./scripts/deployment/launch.sh` script automatically opens Swagger UI in your browser.
 
 ### REST API Endpoints
 
@@ -770,7 +770,7 @@ curl http://localhost:8080/actuator/metrics/candle.aggregator.events.processed |
 ### Run All Tests with Coverage Report
 
 ```bash
-./run-all-tests.sh
+./scripts/testing/run-all-tests.sh
 ```
 
 Generates professional HTML report with:
@@ -943,15 +943,15 @@ psql -h localhost -U candles_user -d candles_db -c "SELECT COUNT(*) FROM candles
 - **[PERFORMANCE_BENCHMARKING.md](./PERFORMANCE_BENCHMARKING.md)** - Benchmarking guide and metrics
 
 ### Utility Scripts
-- `./launch.sh` - **Master launcher** (end-to-end setup + automated tests)
-- `./setup.sh` - Initial environment setup (dependencies + TimescaleDB)
-- `./start-service.sh` - Start application service
-- `./stop-service.sh` - Stop running service
-- `./test-service.sh` - Run API smoke tests
-- `./run-all-tests.sh` - Execute full test suite with coverage report
-- `./performance-report.sh` - Generate comprehensive performance report
-- `./monitor-throughput.sh` - Real-time throughput monitoring
-- `./measure-latency.sh` - Latency percentile measurements
-- `./measure-percentiles.sh` - Detailed percentile analysis
-- `./test-dropped-events.sh` - Stress test for dropped events
-- `./coverage-report.sh` - Generate test coverage report
+- `./scripts/deployment/launch.sh` - **Master launcher** (end-to-end setup + automated tests)
+- `./scripts/deployment/setup.sh` - Initial environment setup (dependencies + TimescaleDB)
+- `./scripts/deployment/start-service.sh` - Start application service
+- `./scripts/deployment/stop-service.sh` - Stop running service
+- `./scripts/testing/test-service.sh` - Run API smoke tests
+- `./scripts/testing/run-all-tests.sh` - Execute full test suite with coverage report
+- `./scripts/performance/performance-report.sh` - Generate comprehensive performance report
+- `./scripts/monitoring/monitor-throughput.sh` - Real-time throughput monitoring
+- `./scripts/performance/measure-latency.sh` - Latency percentile measurements
+- `./scripts/performance/measure-percentiles.sh` - Detailed percentile analysis
+- `./scripts/testing/test-dropped-events.sh` - Stress test for dropped events
+- `./scripts/testing/coverage-report.sh` - Generate test coverage report

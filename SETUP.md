@@ -31,11 +31,11 @@ mvn -version    # Should show: Apache Maven 3.9.6
 docker-compose up -d
 
 # 2. Build and start the service
-./setup.sh
-./start-service.sh
+./scripts/deployment/setup.sh
+./scripts/deployment/start-service.sh
 
 # 3. Test it works (in another terminal)
-./test-service.sh
+./scripts/testing/test-service.sh
 ```
 
 That's it! The service will be running on http://localhost:8080
@@ -164,7 +164,7 @@ Once started, the service:
 
 - Read [README.md](README.md) for architecture details
 - Check [API examples](#api-examples) below
-- Run the test suite: `./test-service.sh`
+- Run the test suite: `./scripts/testing/test-service.sh`
 - Monitor metrics: `curl http://localhost:8080/actuator/metrics | jq`
 
 ## API Examples
@@ -230,11 +230,11 @@ vim src/main/java/com/fintech/candles/...
 
 # Rebuild and restart
 mvn clean package -DskipTests
-./start-service.sh
+./scripts/deployment/start-service.sh
 
 # Or run tests before restart
 mvn clean test
-./start-service.sh
+./scripts/deployment/start-service.sh
 ```
 
 ---

@@ -19,7 +19,7 @@
 
 3. **Start the service:**
    ```bash
-   ./start-service.sh
+   ./scripts/deployment/start-service.sh
    ```
 
 3. **Verify it's running:**
@@ -29,17 +29,17 @@
 
 4. **Check performance:**
    ```bash
-   ./performance-report.sh
+   ./scripts/performance/performance-report.sh
    ```
 
 5. **Monitor real-time throughput:**
    ```bash
-   ./monitor-throughput.sh
+   ./scripts/monitoring/monitor-throughput.sh
    ```
 
 6. **Stop the service:**
    ```bash
-   ./stop-service.sh
+   ./scripts/deployment/stop-service.sh
    ```
 
 ## Configuration
@@ -69,9 +69,9 @@ curl "http://localhost:8080/api/v1/history?symbol=BTCUSD&interval=1s&from=$((NOW
 
 ## Scripts
 
-- `./run-all-tests.sh` — Run all tests, generate HTML report
-- `./test-service.sh` — Smoke test API, metrics, and data
-- `./performance-report.sh` — Full performance summary
-- `./monitor-throughput.sh` — Real-time throughput
-- `./measure-latency.sh` — Latency metrics
-- `./coverage-report.sh` — Generate test coverage report with JaCoCo
+- `./scripts/testing/run-all-tests.sh` — Run all tests, generate HTML report
+- `./scripts/testing/test-service.sh` — Smoke test API, metrics, and data
+- `./scripts/performance/performance-report.sh` — Full performance summary
+- `./scripts/monitoring/monitor-throughput.sh` — Real-time throughput
+- `./scripts/performance/measure-latency.sh` — Latency metrics
+- `./scripts/testing/coverage-report.sh` — Generate test coverage report with JaCoCo
